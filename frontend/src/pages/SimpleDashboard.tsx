@@ -124,10 +124,11 @@ export const SimpleDashboard = () => {
       return;
     }
     try {
+      const domain = provisionDomain || `${provisionName}.double232.com`;
       const result = await provisionSite({
         name: provisionName,
         template: provisionTemplate,
-        domain: provisionDomain || undefined,
+        domain,
       });
       addToHistory({
         title: `provision: ${provisionName}`,
@@ -220,16 +221,23 @@ export const SimpleDashboard = () => {
             placeholder="site-name"
             required
           />
-          <select value={provisionTemplate} onChange={(e) => setProvisionTemplate(e.target.value as TemplateType)}>
+          <div className="template-buttons">
             {templates.map((t) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
+              <button
+                key={t.id}
+                type="button"
+                className={`template-btn ${provisionTemplate === t.id ? 'template-btn--active' : ''}`}
+                onClick={() => setProvisionTemplate(t.id)}
+              >
+                {t.id}
+              </button>
             ))}
-          </select>
+          </div>
           <input
             type="text"
             value={provisionDomain}
             onChange={(e) => setProvisionDomain(e.target.value)}
-            placeholder="domain.com (optional)"
+            placeholder={`${provisionName || 'site'}.double232.com`}
           />
           <button type="submit" disabled={provisionPending || !provisionName}>
             {provisionPending ? 'Creating...' : 'Create'}
