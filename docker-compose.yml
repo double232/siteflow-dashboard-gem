@@ -1,0 +1,54 @@
+services:
+  backend:
+    build: ./backend
+    container_name: siteflow-backend
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+      - /root/.ssh/id_ed25519:/root/.ssh/id_ed25519:ro
+    environment:
+      - HETZNER_HOST=host.docker.internal
+      - HETZNER_USER=root
+      - HETZNER_KEY_PATH=/root/.ssh/id_ed25519
+      - REMOTE_SITES_ROOT=/opt/sites
+      - REMOTE_GATEWAY_ROOT=/opt/gateway
+      - REMOTE_CADDYFILE=/opt/gateway/Caddyfile
+      - REMOTE_DATA_ROOT=/opt/data
+      - CF_ACCOUNT_ID=${CF_ACCOUNT_ID}
+      - CF_API_TOKEN=${CF_API_TOKEN}
+      - CF_TUNNEL_ID=${CF_TUNNEL_ID}
+      - CACHE_TTL_SECONDS=20
+      - LOG_SSH_COMMANDS=false
+      - SQLITE_DB_PATH=/app/data/siteflow.db
+      - AUDIT_RETENTION_DAYS=90
+      - AUDIT_MAX_OUTPUT_LENGTH=10000
+      - NAS_HOST=${NAS_HOST}
+      - NAS_USER=${NAS_USER}
+      - NAS_PASSWORD=${NAS_PASSWORD}
+      - NAS_SHARE=volume1
+      - NAS_BACKUP_PATH=backups
+      - NAS_STALE_THRESHOLD_HOURS=48
+      - WS_MONITOR_INTERVAL=10.0
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - siteflow
+
+  frontend:
+    build: ./frontend
+    container_name: siteflow-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    labels:
+      caddy: dashboard.double232.com
+      caddy.reverse_proxy: "{{upstreams 80}}"
+    networks:
+      - siteflow
+      - web_proxy
+
+networks:
+  siteflow:
+    driver: bridge
+  web_proxy:
+    external: true
