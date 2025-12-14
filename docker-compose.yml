@@ -1,7 +1,7 @@
 services:
-  backend:
-    build: ./backend
-    container_name: siteflow-backend
+  siteflow:
+    build: .
+    container_name: siteflow
     restart: unless-stopped
     volumes:
       - ./data:/app/data
@@ -31,18 +31,9 @@ services:
       - WS_MONITOR_INTERVAL=10.0
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    networks:
-      - siteflow
-
-  frontend:
-    build: ./frontend
-    container_name: siteflow-frontend
-    restart: unless-stopped
-    depends_on:
-      - backend
     labels:
       caddy: dashboard.double232.com
-      caddy.reverse_proxy: "{{upstreams 80}}"
+      caddy.reverse_proxy: "{{upstreams 8000}}"
     networks:
       - siteflow
       - web_proxy
