@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { useAuditLog, useContainerAction, useDeprovisionSite, useProvisionSite, useReloadCaddy, useSiteAction, useSites, useTemplates } from '../api/hooks';
+import { useAuditLogs, useContainerAction, useDeprovisionSite, useProvisionSite, useReloadCaddy, useSiteAction, useSites, useTemplates } from '../api/hooks';
 import { useWebSocket } from '../api/WebSocketContext';
 import { SiteCardGrid } from '../components/SiteCardGrid';
 import type { TemplateType } from '../api/types/provision';
@@ -15,7 +15,7 @@ interface CommandResult {
 export const SimpleDashboard = () => {
   const { data: siteData, isFetching: sitesLoading, refetch: refetchSites } = useSites({ useWebSocket: true });
   const { data: templatesData } = useTemplates();
-  const { data: auditData, refetch: refetchAudit } = useAuditLog();
+  const { data: auditData, refetch: refetchAudit } = useAuditLogs();
   const { mutateAsync: actOnContainer } = useContainerAction();
   const { mutateAsync: actOnSite, isPending: siteActionPending } = useSiteAction();
   const { mutateAsync: provisionSite, isPending: provisionPending } = useProvisionSite();
@@ -161,7 +161,7 @@ export const SimpleDashboard = () => {
       });
       return;
     }
-    const output = entries.slice(0, 20).map(e =>
+    const output = entries.slice(0, 20).map((e: { timestamp: string; action_type: string; target_name: string; status: string; error_message?: string }) =>
       `[${new Date(e.timestamp).toLocaleString()}] ${e.action_type} ${e.target_name}: ${e.status}${e.error_message ? ' - ' + e.error_message : ''}`
     ).join('\n');
     addToHistory({
