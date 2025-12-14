@@ -281,11 +281,24 @@ class HetznerService:
     ) -> list[ContainerStatus]:
         matched: list[ContainerStatus] = []
         for service in services:
+            # Try exact matches first
             key_candidates = {service.container_name, service.name}
+            found = False
             for key in key_candidates:
                 if key and key in docker_containers:
                     matched.append(docker_containers[key])
+                    found = True
                     break
+            # If no exact match, try prefix matching (docker compose adds -1, -2 suffixes)
+            if not found:
+                for container_name, container in docker_containers.items():
+                    for key in key_candidates:
+                        if key and (container_name.startswith(f"{key}-") or container_name.startswith(f"{key}_")):
+                            matched.append(container)
+                            found = True
+                            break
+                    if found:
+                        break
         return matched
 
     def _derive_status(self, containers: list[ContainerStatus]) -> str:
