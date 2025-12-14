@@ -1,15 +1,9 @@
 import { useState } from 'react';
 
-import { useContainerAction, useReloadCaddy, useSiteAction, useSites } from '../api/hooks';
+import { useAuditLog, useContainerAction, useDeprovisionSite, useProvisionSite, useReloadCaddy, useSiteAction, useSites, useTemplates } from '../api/hooks';
 import { useWebSocket } from '../api/WebSocketContext';
-import { AuditLog } from '../components/AuditLog';
-import { ConsoleOutput } from '../components/ConsoleOutput';
-import { DeprovisionConfirm } from '../components/DeprovisionConfirm';
-import { LogModal } from '../components/LogModal';
-import { ProvisionForm } from '../components/ProvisionForm';
 import { SiteCardGrid } from '../components/SiteCardGrid';
-
-type ModalType = 'provision' | 'deprovision' | 'audit' | 'logs' | null;
+import type { TemplateType } from '../api/types/provision';
 
 interface CommandResult {
   title: string;
@@ -20,21 +14,20 @@ interface CommandResult {
 
 export const SimpleDashboard = () => {
   const { data: siteData, isFetching: sitesLoading, refetch: refetchSites } = useSites({ useWebSocket: true });
-  const { mutateAsync: actOnContainer, isPending: containerActionPending } = useContainerAction();
+  const { data: templatesData } = useTemplates();
+  const { data: auditData, refetch: refetchAudit } = useAuditLog();
+  const { mutateAsync: actOnContainer } = useContainerAction();
   const { mutateAsync: actOnSite, isPending: siteActionPending } = useSiteAction();
+  const { mutateAsync: provisionSite, isPending: provisionPending } = useProvisionSite();
+  const { mutateAsync: deprovisionSite } = useDeprovisionSite();
   const reloadCaddy = useReloadCaddy();
   const { isConnected } = useWebSocket();
 
-  const [banner, setBanner] = useState<string>('');
-  const [modal, setModal] = useState<ModalType>(null);
-  const [selectedSiteName, setSelectedSiteName] = useState<string | null>(null);
   const [commandHistory, setCommandHistory] = useState<CommandResult[]>([]);
-
-  const actionPending = containerActionPending || siteActionPending;
-
-  const handleRefresh = () => {
-    refetchSites();
-  };
+  const [showProvision, setShowProvision] = useState(false);
+  const [provisionName, setProvisionName] = useState('');
+  const [provisionTemplate, setProvisionTemplate] = useState<TemplateType>('static');
+  const [provisionDomain, setProvisionDomain] = useState('');
 
   const addToHistory = (result: CommandResult) => {
     setCommandHistory(prev => [result, ...prev]);
@@ -44,7 +37,6 @@ export const SimpleDashboard = () => {
     try {
       const response = await actOnSite({ site: siteName, action });
       const isError = response.output.toLowerCase().includes('error') ||
-                      response.output.toLowerCase().includes('no such file') ||
                       response.output.toLowerCase().includes('failed');
       addToHistory({
         title: `${siteName}: ${action}`,
@@ -52,7 +44,6 @@ export const SimpleDashboard = () => {
         isError,
         timestamp: new Date(),
       });
-      // Delayed refresh to let docker command complete
       if (!isError) {
         setTimeout(() => refetchSites(), 2000);
       }
@@ -66,35 +57,141 @@ export const SimpleDashboard = () => {
     }
   };
 
-  const handleViewLogs = (siteName: string) => {
-    setSelectedSiteName(siteName);
-    setModal('logs');
+  const handleViewLogs = async (siteName: string) => {
+    const site = siteData?.sites.find(s => s.name === siteName);
+    if (!site?.containers.length) {
+      addToHistory({
+        title: `${siteName}: logs`,
+        output: 'No containers found',
+        isError: true,
+        timestamp: new Date(),
+      });
+      return;
+    }
+
+    for (const container of site.containers) {
+      try {
+        const response = await actOnContainer({ container: container.name, action: 'logs' });
+        addToHistory({
+          title: `${container.name}: logs`,
+          output: response.output || '(empty)',
+          isError: false,
+          timestamp: new Date(),
+        });
+      } catch (e) {
+        addToHistory({
+          title: `${container.name}: logs`,
+          output: e instanceof Error ? e.message : 'Failed to fetch logs',
+          isError: true,
+          timestamp: new Date(),
+        });
+      }
+    }
   };
 
-  const handleDeprovision = (siteName: string) => {
-    setSelectedSiteName(siteName);
-    setModal('deprovision');
+  const handleDeprovision = async (siteName: string) => {
+    if (!confirm(`Delete site "${siteName}"? This will stop containers and remove files.`)) {
+      return;
+    }
+    try {
+      const response = await deprovisionSite({ name: siteName, remove_volumes: true, remove_files: true });
+      addToHistory({
+        title: `${siteName}: deprovision`,
+        output: response.message || 'Site removed',
+        isError: false,
+        timestamp: new Date(),
+      });
+      refetchSites();
+    } catch (e) {
+      addToHistory({
+        title: `${siteName}: deprovision`,
+        output: e instanceof Error ? e.message : 'Failed to deprovision',
+        isError: true,
+        timestamp: new Date(),
+      });
+    }
   };
 
-  const handleFetchLogs = async (container: string) => {
-    const response = await actOnContainer({ container, action: 'logs' });
-    return response.output;
+  const handleProvision = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!provisionName.match(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/) && provisionName.length > 1) {
+      addToHistory({
+        title: 'provision',
+        output: 'Name must be lowercase alphanumeric with hyphens',
+        isError: true,
+        timestamp: new Date(),
+      });
+      return;
+    }
+    try {
+      const result = await provisionSite({
+        name: provisionName,
+        template: provisionTemplate,
+        domain: provisionDomain || undefined,
+      });
+      addToHistory({
+        title: `provision: ${provisionName}`,
+        output: result.message || 'Site provisioned',
+        isError: false,
+        timestamp: new Date(),
+      });
+      setProvisionName('');
+      setProvisionDomain('');
+      setShowProvision(false);
+      refetchSites();
+    } catch (e) {
+      addToHistory({
+        title: `provision: ${provisionName}`,
+        output: e instanceof Error ? e.message : 'Provision failed',
+        isError: true,
+        timestamp: new Date(),
+      });
+    }
   };
 
-  const handleProvisionSuccess = () => {
-    setModal(null);
-    setBanner('Site provisioned successfully!');
-    handleRefresh();
+  const handleShowAudit = async () => {
+    await refetchAudit();
+    const entries = auditData?.entries || [];
+    if (entries.length === 0) {
+      addToHistory({
+        title: 'audit log',
+        output: 'No audit entries found',
+        isError: false,
+        timestamp: new Date(),
+      });
+      return;
+    }
+    const output = entries.slice(0, 20).map(e =>
+      `[${new Date(e.timestamp).toLocaleString()}] ${e.action_type} ${e.target_name}: ${e.status}${e.error_message ? ' - ' + e.error_message : ''}`
+    ).join('\n');
+    addToHistory({
+      title: 'audit log (last 20)',
+      output,
+      isError: false,
+      timestamp: new Date(),
+    });
   };
 
-  const handleDeprovisionSuccess = () => {
-    setModal(null);
-    setSelectedSiteName(null);
-    setBanner('Site deprovisioned successfully!');
-    handleRefresh();
+  const handleReloadCaddy = async () => {
+    try {
+      const msg = await reloadCaddy.mutateAsync();
+      addToHistory({
+        title: 'caddy: reload',
+        output: msg,
+        isError: msg.toLowerCase().includes('failed'),
+        timestamp: new Date(),
+      });
+    } catch (e) {
+      addToHistory({
+        title: 'caddy: reload',
+        output: e instanceof Error ? e.message : 'Reload failed',
+        isError: true,
+        timestamp: new Date(),
+      });
+    }
   };
 
-  const selectedSite = siteData?.sites.find(s => s.name === selectedSiteName);
+  const templates = templatesData?.templates || [];
 
   return (
     <div className="simple-dashboard">
@@ -102,33 +199,42 @@ export const SimpleDashboard = () => {
         <h1>SiteFlow Dashboard</h1>
         <div className="header-controls">
           <div className="ws-status">
-            <span
-              className={`ws-status__indicator ${isConnected ? 'ws-status__indicator--connected' : 'ws-status__indicator--disconnected'}`}
-            />
+            <span className={`ws-status__indicator ${isConnected ? 'ws-status__indicator--connected' : 'ws-status__indicator--disconnected'}`} />
             {isConnected ? 'Live' : 'Polling'}
           </div>
-          <button onClick={() => setModal('provision')}>
-            New Site
+          <button onClick={() => setShowProvision(!showProvision)}>
+            {showProvision ? 'Cancel' : 'New Site'}
           </button>
-          <button onClick={() => setModal('audit')}>
-            Audit Log
-          </button>
-          <button onClick={handleRefresh} disabled={sitesLoading}>
-            Refresh
-          </button>
-          <button
-            onClick={() => reloadCaddy.mutateAsync().then((msg) => setBanner(msg))}
-            disabled={reloadCaddy.isPending}
-          >
-            Reload Caddy
-          </button>
+          <button onClick={handleShowAudit}>Audit</button>
+          <button onClick={() => refetchSites()} disabled={sitesLoading}>Refresh</button>
+          <button onClick={handleReloadCaddy} disabled={reloadCaddy.isPending}>Reload Caddy</button>
         </div>
       </header>
 
-      {banner && (
-        <div className="banner" onClick={() => setBanner('')}>
-          {banner}
-        </div>
+      {showProvision && (
+        <form className="provision-bar" onSubmit={handleProvision}>
+          <input
+            type="text"
+            value={provisionName}
+            onChange={(e) => setProvisionName(e.target.value.toLowerCase())}
+            placeholder="site-name"
+            required
+          />
+          <select value={provisionTemplate} onChange={(e) => setProvisionTemplate(e.target.value as TemplateType)}>
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+          <input
+            type="text"
+            value={provisionDomain}
+            onChange={(e) => setProvisionDomain(e.target.value)}
+            placeholder="domain.com (optional)"
+          />
+          <button type="submit" disabled={provisionPending || !provisionName}>
+            {provisionPending ? 'Creating...' : 'Create'}
+          </button>
+        </form>
       )}
 
       <div className="dashboard-layout">
@@ -139,63 +245,41 @@ export const SimpleDashboard = () => {
             onSiteAction={handleSiteAction}
             onViewLogs={handleViewLogs}
             onDeprovision={handleDeprovision}
-            isActionPending={actionPending}
+            isActionPending={siteActionPending}
           />
         </main>
 
         <aside className="dashboard-layout__console">
-          <ConsoleOutput
-            history={commandHistory}
-            onClear={() => setCommandHistory([])}
-          />
+          <div className="console-output">
+            <div className="console-output__header">
+              <span className="console-output__title">Console Output</span>
+              {commandHistory.length > 0 && (
+                <button className="console-output__clear" onClick={() => setCommandHistory([])}>Clear</button>
+              )}
+            </div>
+            <div className="console-output__content">
+              {commandHistory.length === 0 ? (
+                <p className="console-output__placeholder">Command output will appear here</p>
+              ) : (
+                commandHistory.map((result, index) => (
+                  <div
+                    key={`${result.timestamp.getTime()}-${index}`}
+                    className={`console-output__entry ${result.isError ? 'console-output__entry--error' : 'console-output__entry--success'}`}
+                  >
+                    <div className="console-output__entry-header">
+                      <span className="console-output__entry-title">{result.title}</span>
+                      <span className="console-output__entry-time">
+                        {result.timestamp.toLocaleTimeString()}
+                      </span>
+                    </div>
+                    <pre className="console-output__entry-output">{result.output}</pre>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </aside>
       </div>
-
-      {/* Provision Modal */}
-      {modal === 'provision' && (
-        <div className="modal-overlay" onClick={() => setModal(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <ProvisionForm
-              onSuccess={handleProvisionSuccess}
-              onCancel={() => setModal(null)}
-              onOutput={addToHistory}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Deprovision Modal */}
-      {modal === 'deprovision' && selectedSiteName && (
-        <div className="modal-overlay" onClick={() => setModal(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <DeprovisionConfirm
-              siteName={selectedSiteName}
-              onSuccess={handleDeprovisionSuccess}
-              onCancel={() => setModal(null)}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Audit Log Modal */}
-      {modal === 'audit' && (
-        <div className="modal-overlay" onClick={() => setModal(null)}>
-          <div className="modal modal--wide" onClick={(e) => e.stopPropagation()}>
-            <button className="modal__close" onClick={() => setModal(null)}>X</button>
-            <AuditLog />
-          </div>
-        </div>
-      )}
-
-      {/* Logs Modal */}
-      {modal === 'logs' && selectedSite && (
-        <LogModal
-          siteName={selectedSite.name}
-          containers={selectedSite.containers}
-          onFetchLogs={handleFetchLogs}
-          onClose={() => setModal(null)}
-        />
-      )}
     </div>
   );
 };
