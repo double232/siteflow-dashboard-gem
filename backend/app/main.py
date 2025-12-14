@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.database import init_database
-from app.routers import audit, graph, provision, routes, sites, ws
+from app.routers import audit, deploy, graph, provision, routes, sites, ws
 from app.services.monitor import get_monitor
 
 
@@ -52,6 +52,7 @@ app.include_router(graph.router)
 app.include_router(audit.router)
 app.include_router(provision.router)
 app.include_router(routes.router)
+app.include_router(deploy.router)
 app.include_router(ws.router)
 
 

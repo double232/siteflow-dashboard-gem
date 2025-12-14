@@ -7,6 +7,8 @@ interface Props {
   onSiteAction: (siteName: string, action: 'start' | 'stop' | 'restart') => Promise<void>;
   onViewLogs: (siteName: string) => void;
   onDeprovision: (siteName: string) => void;
+  onDeploy: (siteName: string) => void;
+  onPull: (siteName: string) => void;
   isActionPending: boolean;
 }
 
@@ -16,6 +18,8 @@ export const SiteCardGrid = ({
   onSiteAction,
   onViewLogs,
   onDeprovision,
+  onDeploy,
+  onPull,
   isActionPending,
 }: Props) => {
   if (isLoading) {
@@ -44,6 +48,8 @@ export const SiteCardGrid = ({
           onSiteAction={onSiteAction}
           onViewLogs={onViewLogs}
           onDeprovision={onDeprovision}
+          onDeploy={onDeploy}
+          onPull={onPull}
           isActionPending={isActionPending}
         />
       ))}

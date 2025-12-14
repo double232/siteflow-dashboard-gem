@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { useAuditLogs, useContainerAction, useDeprovisionSite, useProvisionSite, useReloadCaddy, useSiteAction, useSites, useTemplates } from '../api/hooks';
+import { useAuditLogs, useContainerAction, useDeployFromGitHub, useDeprovisionSite, usePullLatest, useProvisionSite, useReloadCaddy, useSiteAction, useSites, useTemplates } from '../api/hooks';
 import { useWebSocket } from '../api/WebSocketContext';
 import { SiteCardGrid } from '../components/SiteCardGrid';
 import type { TemplateType } from '../api/types/provision';
@@ -20,6 +20,8 @@ export const SimpleDashboard = () => {
   const { mutateAsync: actOnSite, isPending: siteActionPending } = useSiteAction();
   const { mutateAsync: provisionSite, isPending: provisionPending } = useProvisionSite();
   const { mutateAsync: deprovisionSite } = useDeprovisionSite();
+  const { mutateAsync: deployFromGitHub, isPending: deployPending } = useDeployFromGitHub();
+  const { mutateAsync: pullLatest, isPending: pullPending } = usePullLatest();
   const reloadCaddy = useReloadCaddy();
   const { isConnected } = useWebSocket();
 
@@ -28,6 +30,9 @@ export const SimpleDashboard = () => {
   const [provisionName, setProvisionName] = useState('');
   const [provisionTemplate, setProvisionTemplate] = useState<TemplateType>('static');
   const [provisionDomain, setProvisionDomain] = useState('');
+  const [deploySite, setDeploySite] = useState<string | null>(null);
+  const [deployRepo, setDeployRepo] = useState('');
+  const [deployBranch, setDeployBranch] = useState('main');
 
   const addToHistory = (result: CommandResult) => {
     setCommandHistory(prev => [result, ...prev]);
@@ -192,6 +197,70 @@ export const SimpleDashboard = () => {
     }
   };
 
+  const handleDeploy = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deploySite || !deployRepo) return;
+
+    addToHistory({
+      title: `${deploySite}: deploying`,
+      output: `Cloning ${deployRepo} (${deployBranch})...`,
+      isError: false,
+      timestamp: new Date(),
+    });
+
+    try {
+      const result = await deployFromGitHub({
+        site: deploySite,
+        repo_url: deployRepo,
+        branch: deployBranch,
+      });
+      addToHistory({
+        title: `${deploySite}: deploy`,
+        output: result.output || 'Deployed successfully',
+        isError: result.status === 'error',
+        timestamp: new Date(),
+      });
+      setDeploySite(null);
+      setDeployRepo('');
+      setDeployBranch('main');
+      refetchSites();
+    } catch (e) {
+      addToHistory({
+        title: `${deploySite}: deploy`,
+        output: e instanceof Error ? e.message : 'Deploy failed',
+        isError: true,
+        timestamp: new Date(),
+      });
+    }
+  };
+
+  const handlePull = async (siteName: string) => {
+    addToHistory({
+      title: `${siteName}: pulling`,
+      output: 'Pulling latest changes...',
+      isError: false,
+      timestamp: new Date(),
+    });
+
+    try {
+      const result = await pullLatest({ site: siteName });
+      addToHistory({
+        title: `${siteName}: pull`,
+        output: result.output || 'Pulled successfully',
+        isError: result.status === 'error',
+        timestamp: new Date(),
+      });
+      refetchSites();
+    } catch (e) {
+      addToHistory({
+        title: `${siteName}: pull`,
+        output: e instanceof Error ? e.message : 'Pull failed',
+        isError: true,
+        timestamp: new Date(),
+      });
+    }
+  };
+
   const templates = templatesData?.templates || [];
 
   return (
@@ -245,6 +314,30 @@ export const SimpleDashboard = () => {
         </form>
       )}
 
+      {deploySite && (
+        <form className="deploy-bar" onSubmit={handleDeploy}>
+          <span className="deploy-bar__label">Deploy to {deploySite}:</span>
+          <input
+            type="text"
+            value={deployRepo}
+            onChange={(e) => setDeployRepo(e.target.value)}
+            placeholder="github.com/user/repo"
+            required
+          />
+          <input
+            type="text"
+            value={deployBranch}
+            onChange={(e) => setDeployBranch(e.target.value)}
+            placeholder="main"
+            className="deploy-bar__branch"
+          />
+          <button type="submit" disabled={deployPending || !deployRepo}>
+            {deployPending ? 'Deploying...' : 'Deploy'}
+          </button>
+          <button type="button" onClick={() => setDeploySite(null)}>Cancel</button>
+        </form>
+      )}
+
       <div className="dashboard-layout">
         <main className="dashboard-layout__cards">
           <SiteCardGrid
@@ -253,7 +346,9 @@ export const SimpleDashboard = () => {
             onSiteAction={handleSiteAction}
             onViewLogs={handleViewLogs}
             onDeprovision={handleDeprovision}
-            isActionPending={siteActionPending}
+            onDeploy={(siteName) => setDeploySite(siteName)}
+            onPull={handlePull}
+            isActionPending={siteActionPending || deployPending || pullPending}
           />
         </main>
 

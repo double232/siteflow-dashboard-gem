@@ -10,6 +10,12 @@ import type {
   ProvisionResponse,
   TemplateListResponse,
 } from './types/provision';
+import type {
+  DeployResponse,
+  DeployStatus,
+  GitDeployRequest,
+  PullRequest,
+} from './types/deploy';
 import type { RouteRequest, RouteResponse, RoutesListResponse } from './types';
 
 interface UseQueryOptions {
@@ -199,3 +205,50 @@ export const useRemoveRoute = () => {
     },
   });
 };
+
+// Deploy hooks
+export const useDeployFromGitHub = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (request: GitDeployRequest) => {
+      const { data } = await apiClient.post<DeployResponse>(
+        '/api/deploy/github',
+        request,
+      );
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sites'] });
+      queryClient.invalidateQueries({ queryKey: ['deploy-status'] });
+    },
+  });
+};
+
+export const usePullLatest = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (request: PullRequest) => {
+      const { data } = await apiClient.post<DeployResponse>(
+        '/api/deploy/pull',
+        request,
+      );
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sites'] });
+      queryClient.invalidateQueries({ queryKey: ['deploy-status'] });
+    },
+  });
+};
+
+export const useDeployStatus = (site: string) =>
+  useQuery<DeployStatus>({
+    queryKey: ['deploy-status', site],
+    queryFn: async () => {
+      const { data } = await apiClient.get<DeployStatus>(
+        `/api/deploy/${site}/status`,
+      );
+      return data;
+    },
+    enabled: !!site,
+  });

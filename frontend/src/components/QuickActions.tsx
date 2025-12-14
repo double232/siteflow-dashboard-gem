@@ -3,6 +3,8 @@ interface Props {
   onSiteAction: (action: 'start' | 'stop' | 'restart') => void;
   onViewLogs: () => void;
   onDeprovision: () => void;
+  onDeploy: () => void;
+  onPull: () => void;
   disabled?: boolean;
 }
 
@@ -11,6 +13,8 @@ export const QuickActions = ({
   onSiteAction,
   onViewLogs,
   onDeprovision,
+  onDeploy,
+  onPull,
   disabled = false,
 }: Props) => {
   return (
@@ -46,12 +50,31 @@ export const QuickActions = ({
       <div className="quick-actions__row">
         <button
           type="button"
+          className="action-deploy"
+          disabled={disabled}
+          onClick={onDeploy}
+          title="Deploy from GitHub"
+        >
+          Deploy
+        </button>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={onPull}
+          title="Pull latest changes"
+        >
+          Pull
+        </button>
+        <button
+          type="button"
           disabled={disabled}
           onClick={onViewLogs}
           title="View container logs"
         >
-          View Logs
+          Logs
         </button>
+      </div>
+      <div className="quick-actions__row">
         <button
           type="button"
           className="action-danger"

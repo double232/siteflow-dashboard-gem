@@ -8,6 +8,8 @@ interface Props {
   onSiteAction: (siteName: string, action: 'start' | 'stop' | 'restart') => Promise<void>;
   onViewLogs: (siteName: string) => void;
   onDeprovision: (siteName: string) => void;
+  onDeploy: (siteName: string) => void;
+  onPull: (siteName: string) => void;
   isActionPending: boolean;
 }
 
@@ -16,6 +18,8 @@ export const SiteCard = ({
   onSiteAction,
   onViewLogs,
   onDeprovision,
+  onDeploy,
+  onPull,
   isActionPending,
 }: Props) => {
   const runningCount = site.containers.filter(c => c.status?.includes('Up')).length;
@@ -60,6 +64,8 @@ export const SiteCard = ({
         onSiteAction={(action) => onSiteAction(site.name, action)}
         onViewLogs={() => onViewLogs(site.name)}
         onDeprovision={() => onDeprovision(site.name)}
+        onDeploy={() => onDeploy(site.name)}
+        onPull={() => onPull(site.name)}
         disabled={isActionPending}
       />
     </div>
