@@ -151,8 +151,8 @@ export const SimpleDashboard = () => {
 
   const handleShowAudit = async () => {
     await refetchAudit();
-    const entries = auditData?.entries || [];
-    if (entries.length === 0) {
+    const logs = auditData?.logs || [];
+    if (logs.length === 0) {
       addToHistory({
         title: 'audit log',
         output: 'No audit entries found',
@@ -161,7 +161,7 @@ export const SimpleDashboard = () => {
       });
       return;
     }
-    const output = entries.slice(0, 20).map((e: { timestamp: string; action_type: string; target_name: string; status: string; error_message?: string }) =>
+    const output = logs.slice(0, 20).map(e =>
       `[${new Date(e.timestamp).toLocaleString()}] ${e.action_type} ${e.target_name}: ${e.status}${e.error_message ? ' - ' + e.error_message : ''}`
     ).join('\n');
     addToHistory({
