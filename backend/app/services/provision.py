@@ -30,10 +30,12 @@ COMPOSE_TEMPLATES: dict[TemplateType, str] = {
     container_name: {name}
     restart: unless-stopped
     volumes:
-      - ./public:/usr/share/nginx/html:ro
-      - ./admin:/usr/share/nginx/html/admin:ro
+      - ./public:/usr/share/nginx/html
     networks:
       - siteflow
+    labels:
+      caddy: ${{DOMAIN}}
+      caddy.reverse_proxy: "{{{{upstreams 80}}}}"
 
 networks:
   siteflow:
@@ -57,6 +59,9 @@ networks:
       - mongodb
     networks:
       - siteflow
+    labels:
+      caddy: ${{DOMAIN}}
+      caddy.reverse_proxy: "{{{{upstreams 3000}}}}"
 
   mongodb:
     image: mongo:7
@@ -93,6 +98,9 @@ networks:
       - postgres
     networks:
       - siteflow
+    labels:
+      caddy: ${{DOMAIN}}
+      caddy.reverse_proxy: "{{{{upstreams 8000}}}}"
 
   postgres:
     image: postgres:16-alpine
@@ -131,6 +139,9 @@ networks:
       - mariadb
     networks:
       - siteflow
+    labels:
+      caddy: ${{DOMAIN}}
+      caddy.reverse_proxy: "{{{{upstreams 80}}}}"
 
   mariadb:
     image: mariadb:11
@@ -223,22 +234,15 @@ class ProvisionService:
             )
             self._write_remote_file(f"{site_path}/docker-compose.yml", compose_content)
 
+            # Create .env file with DOMAIN
+            if request.domain:
+                self._write_remote_file(f"{site_path}/.env", f"DOMAIN={request.domain}\n")
+
             # Create template-specific directories
             self._create_template_dirs(request.name, request.template, site_path)
 
-            # Add Caddy route if domain specified
-            if request.domain:
-                self._add_caddy_route(request.name, request.domain, request.template)
-
-            # Start containers
+            # Start containers (caddy-docker-proxy auto-discovers labels)
             self.ssh.execute(f"cd {site_path} && docker compose up -d", check=True)
-
-            # Wait for containers to start
-            time.sleep(3)
-
-            # Reload Caddy if domain was added
-            if request.domain:
-                self.ssh.execute("docker exec caddy caddy reload --config /etc/caddy/Caddyfile", check=False)
 
             duration_ms = (time.time() - start_time) * 1000
             self.audit.log_action(
@@ -284,21 +288,15 @@ class ProvisionService:
             if "missing" in result.stdout:
                 raise ValueError(f"Site '{request.name}' does not exist")
 
-            # Stop and remove containers
+            # Stop and remove containers (caddy-docker-proxy auto-removes routes)
             volume_flag = "-v" if request.remove_volumes else ""
             self.ssh.execute(f"cd {site_path} && docker compose down {volume_flag}", check=False)
-
-            # Remove Caddy route
-            self._remove_caddy_route(request.name)
 
             # Remove files if requested
             files_removed = False
             if request.remove_files:
                 self.ssh.execute(f"rm -rf {site_path}", check=True)
                 files_removed = True
-
-            # Reload Caddy
-            self.ssh.execute("docker exec caddy caddy reload --config /etc/caddy/Caddyfile", check=False)
 
             duration_ms = (time.time() - start_time) * 1000
             self.audit.log_action(
