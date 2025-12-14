@@ -113,7 +113,7 @@ export const useTemplates = () =>
     queryKey: ['templates'],
     queryFn: async () => {
       const { data } = await apiClient.get<TemplateListResponse>(
-        '/api/provision/templates/',
+        '/api/provision/templates',
       );
       return data;
     },
