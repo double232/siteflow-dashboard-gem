@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import re
+import tempfile
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from app.config import get_settings
@@ -13,6 +15,7 @@ from app.services.ssh_client import SSHClientManager
 
 router = APIRouter(prefix="/api/deploy", tags=["deploy"])
 settings = get_settings()
+MAX_UPLOAD_SIZE = 100 * 1024 * 1024  # 100MB
 
 
 class GitDeployRequest(BaseModel):
@@ -227,3 +230,108 @@ async def get_deploy_status(site: str):
             "branch": None,
             "last_commit": None,
         }
+
+
+@router.post("/upload", response_model=DeployResponse)
+async def deploy_from_upload(
+    site: str = Form(...),
+    file: UploadFile = File(...),
+):
+    """Deploy site content from an uploaded zip file."""
+    ssh = _get_ssh()
+    site_path = f"{settings.remote_sites_root}/{site}"
+
+    # Check if site exists
+    result = ssh.execute(f"test -d {site_path} && echo exists || echo missing")
+    if "missing" in result.stdout:
+        raise HTTPException(status_code=404, detail=f"Site '{site}' not found")
+
+    # Validate file
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+
+    if not file.filename.endswith(".zip"):
+        raise HTTPException(status_code=400, detail="Only .zip files are supported")
+
+    # Read file content
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=400, detail="File too large (max 100MB)")
+
+    outputs = []
+    app_path = f"{site_path}/app"
+
+    try:
+        # Base64 encode and transfer via SSH
+        b64_content = base64.b64encode(content).decode("ascii")
+
+        # Clear existing app directory and create fresh
+        await asyncio.to_thread(
+            ssh.execute,
+            f"rm -rf {app_path} && mkdir -p {app_path}",
+            check=True,
+        )
+
+        # Transfer zip file (split into chunks to avoid command line limits)
+        remote_zip = f"/tmp/deploy_{site}.zip"
+        chunk_size = 50000  # ~50KB chunks for base64
+
+        # Write chunks
+        for i in range(0, len(b64_content), chunk_size):
+            chunk = b64_content[i : i + chunk_size]
+            op = ">>" if i > 0 else ">"
+            await asyncio.to_thread(
+                ssh.execute,
+                f"echo '{chunk}' {op} {remote_zip}.b64",
+                check=True,
+            )
+
+        # Decode and extract
+        result = await asyncio.to_thread(
+            ssh.execute,
+            f"base64 -d {remote_zip}.b64 > {remote_zip} && unzip -o {remote_zip} -d {app_path} && rm -f {remote_zip} {remote_zip}.b64",
+            check=False,
+        )
+        outputs.append(result.stdout or "")
+        if result.stderr:
+            outputs.append(result.stderr)
+
+        if result.exit_code != 0:
+            return DeployResponse(
+                site=site,
+                status="error",
+                output=f"Failed to extract zip: {result.stderr or result.stdout}",
+                repo_url=None,
+            )
+
+        # Handle nested directory (if zip has a single root folder)
+        result = await asyncio.to_thread(
+            ssh.execute,
+            f"cd {app_path} && if [ $(ls -1 | wc -l) -eq 1 ] && [ -d \"$(ls -1)\" ]; then mv $(ls -1)/* . 2>/dev/null; rmdir $(ls -d */ 2>/dev/null) 2>/dev/null; fi; echo done",
+            check=False,
+        )
+
+        # Save deploy info
+        siteflow_config = {"deploy_type": "upload", "filename": file.filename}
+        config_json = json.dumps(siteflow_config)
+        ssh.execute(f"echo '{config_json}' > {site_path}/.siteflow.json", check=False)
+
+        # Rebuild and restart containers
+        result = await asyncio.to_thread(
+            ssh.execute,
+            f"cd {site_path} && docker compose down && docker compose build --no-cache && docker compose up -d",
+            check=False,
+        )
+        outputs.append(result.stdout or "")
+        if result.stderr:
+            outputs.append(result.stderr)
+
+        return DeployResponse(
+            site=site,
+            status="success" if result.exit_code == 0 else "partial",
+            output="\n".join(outputs),
+            repo_url=None,
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { useAuditLogs, useContainerAction, useDeployFromGitHub, useDeprovisionSite, usePullLatest, useProvisionSite, useReloadCaddy, useSiteAction, useSites, useTemplates } from '../api/hooks';
+import { useAuditLogs, useContainerAction, useDeployFromGitHub, useDeprovisionSite, usePullLatest, useProvisionSite, useReloadCaddy, useSiteAction, useSites, useTemplates, useUploadDeploy } from '../api/hooks';
 import { useWebSocket } from '../api/WebSocketContext';
 import { SiteCardGrid } from '../components/SiteCardGrid';
 import type { TemplateType } from '../api/types/provision';
@@ -22,6 +22,7 @@ export const SimpleDashboard = () => {
   const { mutateAsync: deprovisionSite } = useDeprovisionSite();
   const { mutateAsync: deployFromGitHub, isPending: deployPending } = useDeployFromGitHub();
   const { mutateAsync: pullLatest, isPending: pullPending } = usePullLatest();
+  const { mutateAsync: uploadDeploy, isPending: uploadPending } = useUploadDeploy();
   const reloadCaddy = useReloadCaddy();
   const { isConnected } = useWebSocket();
 
@@ -31,6 +32,7 @@ export const SimpleDashboard = () => {
   const [provisionTemplate, setProvisionTemplate] = useState<TemplateType>('static');
   const [provisionDomain, setProvisionDomain] = useState('');
   const [deploySite, setDeploySite] = useState<string | null>(null);
+  const [deployMode, setDeployMode] = useState<'git' | 'upload'>('git');
   const [deployRepo, setDeployRepo] = useState('');
   const [deployBranch, setDeployBranch] = useState('main');
 
@@ -234,6 +236,39 @@ export const SimpleDashboard = () => {
     }
   };
 
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!deploySite || !e.target.files?.[0]) return;
+    const file = e.target.files[0];
+
+    addToHistory({
+      title: `${deploySite}: uploading`,
+      output: `Uploading ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)...`,
+      isError: false,
+      timestamp: new Date(),
+    });
+
+    try {
+      const result = await uploadDeploy({ site: deploySite, file });
+      addToHistory({
+        title: `${deploySite}: upload deploy`,
+        output: result.output || 'Deployed successfully',
+        isError: result.status === 'error',
+        timestamp: new Date(),
+      });
+      setDeploySite(null);
+      refetchSites();
+    } catch (e) {
+      addToHistory({
+        title: `${deploySite}: upload deploy`,
+        output: e instanceof Error ? e.message : 'Upload failed',
+        isError: true,
+        timestamp: new Date(),
+      });
+    }
+    // Reset file input
+    e.target.value = '';
+  };
+
   const handlePull = async (siteName: string) => {
     addToHistory({
       title: `${siteName}: pulling`,
@@ -315,27 +350,60 @@ export const SimpleDashboard = () => {
       )}
 
       {deploySite && (
-        <form className="deploy-bar" onSubmit={handleDeploy}>
+        <div className="deploy-bar">
           <span className="deploy-bar__label">Deploy to {deploySite}:</span>
-          <input
-            type="text"
-            value={deployRepo}
-            onChange={(e) => setDeployRepo(e.target.value)}
-            placeholder="github.com/user/repo"
-            required
-          />
-          <input
-            type="text"
-            value={deployBranch}
-            onChange={(e) => setDeployBranch(e.target.value)}
-            placeholder="main"
-            className="deploy-bar__branch"
-          />
-          <button type="submit" disabled={deployPending || !deployRepo}>
-            {deployPending ? 'Deploying...' : 'Deploy'}
-          </button>
+          <div className="deploy-bar__mode">
+            <button
+              type="button"
+              className={`mode-btn ${deployMode === 'git' ? 'mode-btn--active' : ''}`}
+              onClick={() => setDeployMode('git')}
+            >
+              Git
+            </button>
+            <button
+              type="button"
+              className={`mode-btn ${deployMode === 'upload' ? 'mode-btn--active' : ''}`}
+              onClick={() => setDeployMode('upload')}
+            >
+              Upload
+            </button>
+          </div>
+          {deployMode === 'git' ? (
+            <form className="deploy-bar__form" onSubmit={handleDeploy}>
+              <input
+                type="text"
+                value={deployRepo}
+                onChange={(e) => setDeployRepo(e.target.value)}
+                placeholder="github.com/user/repo"
+                required
+              />
+              <input
+                type="text"
+                value={deployBranch}
+                onChange={(e) => setDeployBranch(e.target.value)}
+                placeholder="main"
+                className="deploy-bar__branch"
+              />
+              <button type="submit" disabled={deployPending || !deployRepo}>
+                {deployPending ? 'Deploying...' : 'Clone'}
+              </button>
+            </form>
+          ) : (
+            <div className="deploy-bar__upload">
+              <label className="upload-btn">
+                {uploadPending ? 'Uploading...' : 'Choose .zip file'}
+                <input
+                  type="file"
+                  accept=".zip"
+                  onChange={handleUpload}
+                  disabled={uploadPending}
+                  hidden
+                />
+              </label>
+            </div>
+          )}
           <button type="button" onClick={() => setDeploySite(null)}>Cancel</button>
-        </form>
+        </div>
       )}
 
       <div className="dashboard-layout">
@@ -348,7 +416,7 @@ export const SimpleDashboard = () => {
             onDeprovision={handleDeprovision}
             onDeploy={(siteName) => setDeploySite(siteName)}
             onPull={handlePull}
-            isActionPending={siteActionPending || deployPending || pullPending}
+            isActionPending={siteActionPending || deployPending || pullPending || uploadPending}
           />
         </main>
 

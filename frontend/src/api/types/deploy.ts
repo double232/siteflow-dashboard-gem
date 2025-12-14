@@ -4,6 +4,11 @@ export interface GitDeployRequest {
   branch?: string;
 }
 
+export interface UploadDeployRequest {
+  site: string;
+  file: File;
+}
+
 export interface PullRequest {
   site: string;
 }

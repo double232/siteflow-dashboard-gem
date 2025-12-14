@@ -15,6 +15,7 @@ import type {
   DeployStatus,
   GitDeployRequest,
   PullRequest,
+  UploadDeployRequest,
 } from './types/deploy';
 import type { RouteRequest, RouteResponse, RoutesListResponse } from './types';
 
@@ -231,6 +232,30 @@ export const usePullLatest = () => {
       const { data } = await apiClient.post<DeployResponse>(
         '/api/deploy/pull',
         request,
+      );
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sites'] });
+      queryClient.invalidateQueries({ queryKey: ['deploy-status'] });
+    },
+  });
+};
+
+export const useUploadDeploy = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (request: UploadDeployRequest) => {
+      const formData = new FormData();
+      formData.append('site', request.site);
+      formData.append('file', request.file);
+      const { data } = await apiClient.post<DeployResponse>(
+        '/api/deploy/upload',
+        formData,
+        {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          timeout: 300000, // 5 min timeout for large uploads
+        },
       );
       return data;
     },
