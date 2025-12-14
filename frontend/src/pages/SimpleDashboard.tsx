@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { useAuditLogs, useContainerAction, useDeployFromGitHub, useDeprovisionSite, usePullLatest, useProvisionSite, useReloadCaddy, useSiteAction, useSites, useTemplates, useUploadDeploy } from '../api/hooks';
+import { useAuditLogs, useContainerAction, useDeployFromGitHub, useDeprovisionSite, useFolderDeploy, usePullLatest, useProvisionSite, useReloadCaddy, useSiteAction, useSites, useTemplates, useUploadDeploy } from '../api/hooks';
 import { useWebSocket } from '../api/WebSocketContext';
 import { SiteCardGrid } from '../components/SiteCardGrid';
 import type { TemplateType } from '../api/types/provision';
@@ -23,6 +23,7 @@ export const SimpleDashboard = () => {
   const { mutateAsync: deployFromGitHub, isPending: deployPending } = useDeployFromGitHub();
   const { mutateAsync: pullLatest, isPending: pullPending } = usePullLatest();
   const { mutateAsync: uploadDeploy, isPending: uploadPending } = useUploadDeploy();
+  const { mutateAsync: folderDeploy, isPending: folderPending } = useFolderDeploy();
   const reloadCaddy = useReloadCaddy();
   const { isConnected } = useWebSocket();
 
@@ -269,6 +270,38 @@ export const SimpleDashboard = () => {
     e.target.value = '';
   };
 
+  const handleFolderUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!deploySite || !e.target.files?.length) return;
+    const files = e.target.files;
+
+    addToHistory({
+      title: `${deploySite}: uploading folder`,
+      output: `Uploading ${files.length} files...`,
+      isError: false,
+      timestamp: new Date(),
+    });
+
+    try {
+      const result = await folderDeploy({ site: deploySite, files });
+      addToHistory({
+        title: `${deploySite}: folder deploy`,
+        output: result.output || 'Deployed successfully',
+        isError: result.status === 'error',
+        timestamp: new Date(),
+      });
+      setDeploySite(null);
+      refetchSites();
+    } catch (e) {
+      addToHistory({
+        title: `${deploySite}: folder deploy`,
+        output: e instanceof Error ? e.message : 'Upload failed',
+        isError: true,
+        timestamp: new Date(),
+      });
+    }
+    e.target.value = '';
+  };
+
   const handlePull = async (siteName: string) => {
     addToHistory({
       title: `${siteName}: pulling`,
@@ -391,13 +424,23 @@ export const SimpleDashboard = () => {
           ) : (
             <div className="deploy-bar__upload">
               <label className="upload-btn">
-                {uploadPending ? 'Uploading...' : 'Choose .zip file'}
+                {uploadPending ? 'Uploading...' : '.zip file'}
                 <input
                   type="file"
                   accept=".zip"
                   onChange={handleUpload}
                   disabled={uploadPending}
                   hidden
+                />
+              </label>
+              <label className="upload-btn">
+                {folderPending ? 'Uploading...' : 'Folder'}
+                <input
+                  type="file"
+                  onChange={handleFolderUpload}
+                  disabled={folderPending}
+                  hidden
+                  {...{ webkitdirectory: '', directory: '' } as React.InputHTMLAttributes<HTMLInputElement>}
                 />
               </label>
             </div>
@@ -416,7 +459,7 @@ export const SimpleDashboard = () => {
             onDeprovision={handleDeprovision}
             onDeploy={(siteName) => setDeploySite(siteName)}
             onPull={handlePull}
-            isActionPending={siteActionPending || deployPending || pullPending || uploadPending}
+            isActionPending={siteActionPending || deployPending || pullPending || uploadPending || folderPending}
           />
         </main>
 

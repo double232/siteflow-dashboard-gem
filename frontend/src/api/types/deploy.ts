@@ -9,6 +9,11 @@ export interface UploadDeployRequest {
   file: File;
 }
 
+export interface FolderDeployRequest {
+  site: string;
+  files: FileList;
+}
+
 export interface PullRequest {
   site: string;
 }

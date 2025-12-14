@@ -13,6 +13,7 @@ import type {
 import type {
   DeployResponse,
   DeployStatus,
+  FolderDeployRequest,
   GitDeployRequest,
   PullRequest,
   UploadDeployRequest,
@@ -255,6 +256,35 @@ export const useUploadDeploy = () => {
         {
           headers: { 'Content-Type': 'multipart/form-data' },
           timeout: 300000, // 5 min timeout for large uploads
+        },
+      );
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sites'] });
+      queryClient.invalidateQueries({ queryKey: ['deploy-status'] });
+    },
+  });
+};
+
+export const useFolderDeploy = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (request: FolderDeployRequest) => {
+      const formData = new FormData();
+      formData.append('site', request.site);
+      for (let i = 0; i < request.files.length; i++) {
+        const file = request.files[i];
+        // Use webkitRelativePath for folder structure
+        const path = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+        formData.append('files', file, path);
+      }
+      const { data } = await apiClient.post<DeployResponse>(
+        '/api/deploy/folder',
+        formData,
+        {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          timeout: 600000, // 10 min timeout for folder uploads
         },
       );
       return data;
