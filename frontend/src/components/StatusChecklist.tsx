@@ -91,9 +91,18 @@ const getCloudflareCheck = (site: Site): CheckItem => {
   };
 };
 
-const getReachableCheck = (healthStatus?: MonitorStatus): CheckItem => {
+const getReachableCheck = (siteName: string, healthStatus?: MonitorStatus): CheckItem => {
   // Use real HTTP health check from Uptime Kuma
   if (!healthStatus) {
+    // uptime-kuma doesn't monitor itself - if we're getting health data, it's up
+    if (siteName === 'uptime-kuma') {
+      return {
+        id: 'reachable',
+        label: 'Site reachable',
+        status: 'ok',
+        detail: 'Self (Kuma running)',
+      };
+    }
     return {
       id: 'reachable',
       label: 'Site reachable',
@@ -135,7 +144,7 @@ export const StatusChecklist = ({ site, healthStatus }: Props) => {
     getContainerCheck(site),
     getCaddyCheck(site),
     getCloudflareCheck(site),
-    getReachableCheck(healthStatus),
+    getReachableCheck(site.name, healthStatus),
   ];
 
   return (
