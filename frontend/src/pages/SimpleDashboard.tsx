@@ -37,7 +37,7 @@ export const SimpleDashboard = () => {
   const [showProvision, setShowProvision] = useState(false);
   const [provisionName, setProvisionName] = useState('');
   const [provisionDomain, setProvisionDomain] = useState('');
-  const [provisionSource, setProvisionSource] = useState<'git' | 'folder' | 'zip'>('git');
+  const [provisionSource, setProvisionSource] = useState<'none' | 'git' | 'folder' | 'zip'>('none');
   const [provisionGitUrl, setProvisionGitUrl] = useState('');
   const [provisionFiles, setProvisionFiles] = useState<FileList | null>(null);
   const [provisionStatus, setProvisionStatus] = useState('');
@@ -162,37 +162,43 @@ export const SimpleDashboard = () => {
       let detectedType = 'static';
       const domain = provisionDomain || `${provisionName}.double232.com`;
 
-      // Step 1: Detect type
-      setProvisionStatus('Detecting project type...');
-      if (provisionSource === 'git') {
-        if (!provisionGitUrl) {
-          addToHistory({ title: 'provision', output: 'Please enter a Git URL', isError: true, timestamp: new Date() });
-          setProvisionStatus('');
-          return;
+      // Step 1: Detect type (skip for 'none')
+      if (provisionSource !== 'none') {
+        setProvisionStatus('Detecting project type...');
+        if (provisionSource === 'git') {
+          if (!provisionGitUrl) {
+            addToHistory({ title: 'provision', output: 'Please enter a Git URL', isError: true, timestamp: new Date() });
+            setProvisionStatus('');
+            return;
+          }
+          const { data } = await import('../api/client').then(m => m.apiClient.post('/api/provision/detect', { git_url: provisionGitUrl }));
+          detectedType = data.detected_type;
+        } else if (provisionFiles && provisionFiles.length > 0) {
+          detectedType = detectFromFiles(provisionFiles);
         }
-        const { data } = await import('../api/client').then(m => m.apiClient.post('/api/provision/detect', { git_url: provisionGitUrl }));
-        detectedType = data.detected_type;
-      } else if (provisionFiles && provisionFiles.length > 0) {
-        detectedType = detectFromFiles(provisionFiles);
       }
 
       // Step 2: Provision
       setProvisionStatus(`Creating ${detectedType} site...`);
       await provisionSite({ name: provisionName, template: detectedType as TemplateType, domain });
 
-      // Step 3: Deploy content
-      setProvisionStatus('Deploying content...');
-      if (provisionSource === 'git') {
-        await deployFromGitHub({ site: provisionName, repo_url: provisionGitUrl, branch: 'main' });
-      } else if (provisionSource === 'folder' && provisionFiles) {
-        await folderDeploy({ site: provisionName, files: provisionFiles });
-      } else if (provisionSource === 'zip' && provisionFiles?.[0]) {
-        await uploadDeploy({ site: provisionName, file: provisionFiles[0] });
+      // Step 3: Deploy content (skip for 'none')
+      if (provisionSource !== 'none') {
+        setProvisionStatus('Deploying content...');
+        if (provisionSource === 'git') {
+          await deployFromGitHub({ site: provisionName, repo_url: provisionGitUrl, branch: 'main' });
+        } else if (provisionSource === 'folder' && provisionFiles) {
+          await folderDeploy({ site: provisionName, files: provisionFiles });
+        } else if (provisionSource === 'zip' && provisionFiles?.[0]) {
+          await uploadDeploy({ site: provisionName, file: provisionFiles[0] });
+        }
       }
 
       addToHistory({
         title: `provision: ${provisionName}`,
-        output: `Site created with ${detectedType} template and content deployed`,
+        output: provisionSource === 'none'
+          ? `Site created with landing page at ${domain}`
+          : `Site created with ${detectedType} template and content deployed`,
         isError: false,
         timestamp: new Date(),
       });
@@ -200,6 +206,7 @@ export const SimpleDashboard = () => {
       setProvisionDomain('');
       setProvisionGitUrl('');
       setProvisionFiles(null);
+      setProvisionSource('none');
       setProvisionStatus('');
       setShowProvision(false);
       refetchSites();
@@ -431,6 +438,14 @@ export const SimpleDashboard = () => {
             disabled={provisionPending}
           />
           <div className="template-buttons">
+            <button
+              type="button"
+              className={`template-btn ${provisionSource === 'none' ? 'template-btn--active' : ''}`}
+              onClick={() => setProvisionSource('none')}
+              disabled={provisionPending}
+            >
+              None
+            </button>
             <button
               type="button"
               className={`template-btn ${provisionSource === 'git' ? 'template-btn--active' : ''}`}
