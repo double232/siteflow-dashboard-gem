@@ -39,12 +39,20 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Parse CORS origins from settings
+# Default restricts to localhost dev servers; in production set CORS_ALLOWED_ORIGINS env var
+cors_origins = [
+    origin.strip()
+    for origin in settings.cors_allowed_origins.split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
 )
 
 app.include_router(sites.router)

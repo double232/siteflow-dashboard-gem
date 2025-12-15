@@ -8,6 +8,13 @@ from fastapi import APIRouter, HTTPException, Path, Query
 from app.dependencies import get_audit_service, get_hetzner_service
 from app.schemas.audit import ActionStatus, ActionType, TargetType
 from app.schemas.site import SitesResponse
+from app.validators import (
+    ValidationError,
+    validate_site_name,
+    validate_domain,
+    validate_container_name,
+    quote_shell_arg,
+)
 
 
 router = APIRouter(prefix="/api/sites", tags=["sites"])
@@ -25,6 +32,16 @@ async def container_action(
     container: str = Path(..., description="Docker container name"),
     action: str = Path(..., description="start|stop|restart|logs"),
 ):
+    # Validate container name
+    try:
+        validated_container = validate_container_name(container)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    # Validate action
+    if action not in ("start", "stop", "restart", "logs"):
+        raise HTTPException(status_code=400, detail=f"Invalid action: {action}")
+
     service = get_hetzner_service()
     audit = get_audit_service()
 
@@ -37,13 +54,13 @@ async def container_action(
 
     start_time = time.time()
     try:
-        output = await asyncio.to_thread(service.run_container_action, container, action)
+        output = await asyncio.to_thread(service.run_container_action, validated_container, action)
         duration_ms = (time.time() - start_time) * 1000
 
         audit.log_action(
             action_type=action_type_map.get(action, action),
             target_type=TargetType.CONTAINER,
-            target_name=container,
+            target_name=validated_container,
             status=ActionStatus.SUCCESS,
             output=output,
             duration_ms=duration_ms,
@@ -53,7 +70,7 @@ async def container_action(
         audit.log_action(
             action_type=action_type_map.get(action, action),
             target_type=TargetType.CONTAINER,
-            target_name=container,
+            target_name=validated_container,
             status=ActionStatus.FAILURE,
             error_message=str(exc),
             duration_ms=duration_ms,
@@ -64,13 +81,13 @@ async def container_action(
         audit.log_action(
             action_type=action_type_map.get(action, action),
             target_type=TargetType.CONTAINER,
-            target_name=container,
+            target_name=validated_container,
             status=ActionStatus.FAILURE,
             error_message=str(exc),
             duration_ms=duration_ms,
         )
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return {"container": container, "action": action, "output": output}
+    return {"container": validated_container, "action": action, "output": output}
 
 
 @router.post("/{site_name}/{action}")
@@ -79,6 +96,12 @@ async def site_action(
     action: str = Path(..., description="start|stop|restart"),
 ):
     """Start/stop/restart a site using docker-compose."""
+    # Validate site name
+    try:
+        validated_site = validate_site_name(site_name)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
     service = get_hetzner_service()
     audit = get_audit_service()
 
@@ -93,13 +116,13 @@ async def site_action(
 
     start_time = time.time()
     try:
-        output = await asyncio.to_thread(service.run_site_action, site_name, action)
+        output = await asyncio.to_thread(service.run_site_action, validated_site, action)
         duration_ms = (time.time() - start_time) * 1000
 
         audit.log_action(
             action_type=action_type_map[action],
             target_type=TargetType.SITE,
-            target_name=site_name,
+            target_name=validated_site,
             status=ActionStatus.SUCCESS,
             output=output,
             duration_ms=duration_ms,
@@ -109,7 +132,7 @@ async def site_action(
         audit.log_action(
             action_type=action_type_map.get(action, action),
             target_type=TargetType.SITE,
-            target_name=site_name,
+            target_name=validated_site,
             status=ActionStatus.FAILURE,
             error_message=str(exc),
             duration_ms=duration_ms,
@@ -120,13 +143,13 @@ async def site_action(
         audit.log_action(
             action_type=action_type_map.get(action, action),
             target_type=TargetType.SITE,
-            target_name=site_name,
+            target_name=validated_site,
             status=ActionStatus.FAILURE,
             error_message=str(exc),
             duration_ms=duration_ms,
         )
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return {"site": site_name, "action": action, "output": output}
+    return {"site": validated_site, "action": action, "output": output}
 
 
 @router.post("/caddy/reload")
@@ -168,11 +191,19 @@ async def set_site_env(
     domain: str = Query(..., description="Domain for the site"),
 ):
     """Set the DOMAIN environment variable for a site."""
+    # Validate inputs
+    try:
+        validated_site = validate_site_name(site)
+        validated_domain = validate_domain(domain)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
     service = get_hetzner_service()
     audit = get_audit_service()
 
     start_time = time.time()
-    env_path = f"{service.settings.remote_sites_root}/{site}/.env"
+    env_path = f"{service.settings.remote_sites_root}/{validated_site}/.env"
+    quoted_env_path = quote_shell_arg(env_path)
 
     try:
         # Read existing .env if it exists
@@ -184,11 +215,11 @@ async def set_site_env(
         # Update or add DOMAIN line
         lines = existing.strip().split('\n') if existing.strip() else []
         new_lines = [l for l in lines if not l.startswith('DOMAIN=')]
-        new_lines.append(f'DOMAIN={domain}')
+        new_lines.append(f'DOMAIN={validated_domain}')
         new_content = '\n'.join(new_lines) + '\n'
 
-        # Write the .env file
-        cmd = f"cat > {env_path} << 'EOF'\n{new_content}EOF"
+        # Write the .env file using heredoc (content is validated)
+        cmd = f"cat > {quoted_env_path} << 'EOF'\n{new_content}EOF"
         await asyncio.to_thread(service.ssh.execute, cmd)
 
         # Invalidate cache
@@ -198,19 +229,19 @@ async def set_site_env(
         audit.log_action(
             action_type=ActionType.SITE_START,  # Using SITE_START as placeholder
             target_type=TargetType.SITE,
-            target_name=site,
+            target_name=validated_site,
             status=ActionStatus.SUCCESS,
-            output=f"Set DOMAIN={domain}",
+            output=f"Set DOMAIN={validated_domain}",
             duration_ms=duration_ms,
         )
 
-        return {"message": f"Set DOMAIN={domain} for {site}", "site": site, "domain": domain}
+        return {"message": f"Set DOMAIN={validated_domain} for {validated_site}", "site": validated_site, "domain": validated_domain}
     except Exception as exc:
         duration_ms = (time.time() - start_time) * 1000
         audit.log_action(
             action_type=ActionType.SITE_START,
             target_type=TargetType.SITE,
-            target_name=site,
+            target_name=validated_site,
             status=ActionStatus.FAILURE,
             error_message=str(exc),
             duration_ms=duration_ms,

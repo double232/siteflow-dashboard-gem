@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     # WebSocket settings
     ws_monitor_interval: float = 10.0
 
+    # CORS settings
+    # Comma-separated list of allowed origins, or "*" for all (not recommended)
+    cors_allowed_origins: str = "http://localhost:5173,http://localhost:3000"
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="allow")
 
 

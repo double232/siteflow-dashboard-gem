@@ -21,6 +21,13 @@ from app.schemas.provision import (
 from app.services.audit import AuditService
 from app.services.cloudflare import CloudflareService
 from app.services.ssh_client import SSHClientManager
+from app.validators import (
+    ValidationError,
+    validate_site_name,
+    validate_domain,
+    validate_git_url,
+    quote_shell_arg,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -338,14 +345,27 @@ class ProvisionService:
 
         try:
             if request.git_url:
+                # Validate git URL
+                try:
+                    validated_url = validate_git_url(request.git_url)
+                except ValidationError as e:
+                    return DetectResponse(
+                        detected_type=TemplateType.STATIC,
+                        confidence="low",
+                        reason=f"Invalid git URL: {e}",
+                        files_checked=[],
+                    )
+
                 # Clone to temp directory for scanning
                 temp_dir = tempfile.mkdtemp(prefix="siteflow_detect_")
+                quoted_url = quote_shell_arg(validated_url)
+                quoted_dir = quote_shell_arg(f"{temp_dir}/repo")
                 result = self.ssh.execute(
-                    f"git clone --depth 1 {request.git_url} {temp_dir}/repo 2>&1",
+                    f"git clone --depth 1 {quoted_url} {quoted_dir} 2>&1",
                     check=False,
                     timeout=60,
                 )
-                if result.return_code != 0:
+                if result.exit_code != 0:
                     return DetectResponse(
                         detected_type=TemplateType.STATIC,
                         confidence="low",
@@ -460,27 +480,39 @@ class ProvisionService:
     def provision_site(self, request: ProvisionRequest) -> ProvisionResponse:
         """Provision a new site with the specified template."""
         start_time = time.time()
-        site_path = f"{self.settings.remote_sites_root}/{request.name}"
+
+        # Validate inputs
+        try:
+            validated_name = validate_site_name(request.name)
+        except ValidationError as e:
+            raise ValueError(f"Invalid site name: {e}") from e
+
+        site_path = f"{self.settings.remote_sites_root}/{validated_name}"
+        quoted_site_path = quote_shell_arg(site_path)
 
         # Use provided domain or default to {name}.double232.com
-        domain = request.domain or f"{request.name}.double232.com"
+        raw_domain = request.domain or f"{validated_name}.double232.com"
+        try:
+            domain = validate_domain(raw_domain)
+        except ValidationError as e:
+            raise ValueError(f"Invalid domain: {e}") from e
 
         try:
             # Ensure web_proxy network exists
             self._ensure_web_proxy_network()
 
             # Check if site already exists
-            result = self.ssh.execute(f"test -d {site_path} && echo exists || echo missing")
+            result = self.ssh.execute(f"test -d {quoted_site_path} && echo exists || echo missing")
             if "exists" in result.stdout:
-                raise ValueError(f"Site '{request.name}' already exists")
+                raise ValueError(f"Site '{validated_name}' already exists")
 
             # Create site directory
-            self.ssh.execute(f"mkdir -p {site_path}", check=True)
+            self.ssh.execute(f"mkdir -p {quoted_site_path}", check=True)
 
             # Generate docker-compose.yml
             secret = self._generate_secret()
             compose_content = COMPOSE_TEMPLATES[request.template].format(
-                name=request.name,
+                name=validated_name,
                 secret=secret,
             )
             self._write_remote_file(f"{site_path}/docker-compose.yml", compose_content)
@@ -489,10 +521,10 @@ class ProvisionService:
             self._write_remote_file(f"{site_path}/.env", f"DOMAIN={domain}\n")
 
             # Create template-specific directories
-            self._create_template_dirs(request.name, request.template, site_path)
+            self._create_template_dirs(validated_name, request.template, site_path)
 
             # Start containers (caddy-docker-proxy auto-discovers labels)
-            self.ssh.execute(f"cd {site_path} && docker compose up -d", check=True)
+            self.ssh.execute(f"cd {quoted_site_path} && docker compose up -d", check=True)
 
             # Add public hostname to Cloudflare tunnel and create DNS record
             # Route through localhost:80 (caddy-docker-proxy) which handles routing to containers
@@ -509,7 +541,7 @@ class ProvisionService:
             self.audit.log_action(
                 action_type=ActionType.SITE_PROVISION,
                 target_type=TargetType.SITE,
-                target_name=request.name,
+                target_name=validated_name,
                 status=ActionStatus.SUCCESS,
                 output=f"Site provisioned with template {request.template.value}",
                 metadata={"template": request.template.value, "domain": domain},
@@ -517,10 +549,10 @@ class ProvisionService:
             )
 
             return ProvisionResponse(
-                name=request.name,
+                name=validated_name,
                 template=request.template,
                 status="success",
-                message=f"Site '{request.name}' provisioned successfully at {domain}",
+                message=f"Site '{validated_name}' provisioned successfully at {domain}",
                 path=site_path,
                 domain=domain,
             )
@@ -530,7 +562,7 @@ class ProvisionService:
             self.audit.log_action(
                 action_type=ActionType.SITE_PROVISION,
                 target_type=TargetType.SITE,
-                target_name=request.name,
+                target_name=validated_name,
                 status=ActionStatus.FAILURE,
                 error_message=str(e),
                 metadata={"template": request.template.value},
@@ -541,18 +573,26 @@ class ProvisionService:
     def deprovision_site(self, request: DeprovisionRequest) -> DeprovisionResponse:
         """Deprovision an existing site."""
         start_time = time.time()
-        site_path = f"{self.settings.remote_sites_root}/{request.name}"
+
+        # Validate site name
+        try:
+            validated_name = validate_site_name(request.name)
+        except ValidationError as e:
+            raise ValueError(f"Invalid site name: {e}") from e
+
+        site_path = f"{self.settings.remote_sites_root}/{validated_name}"
+        quoted_site_path = quote_shell_arg(site_path)
 
         try:
             # Check if site exists
-            result = self.ssh.execute(f"test -d {site_path} && echo exists || echo missing")
+            result = self.ssh.execute(f"test -d {quoted_site_path} && echo exists || echo missing")
             if "missing" in result.stdout:
-                raise ValueError(f"Site '{request.name}' does not exist")
+                raise ValueError(f"Site '{validated_name}' does not exist")
 
             # Read domain from .env file to remove from Cloudflare
             domain = None
             try:
-                env_result = self.ssh.execute(f"cat {site_path}/.env 2>/dev/null || true", check=False)
+                env_result = self.ssh.execute(f"cat {quoted_site_path}/.env 2>/dev/null || true", check=False)
                 for line in env_result.stdout.split("\n"):
                     if line.startswith("DOMAIN="):
                         domain = line.split("=", 1)[1].strip()
@@ -572,19 +612,19 @@ class ProvisionService:
 
             # Stop and remove containers (caddy-docker-proxy auto-removes routes)
             volume_flag = "-v" if request.remove_volumes else ""
-            self.ssh.execute(f"cd {site_path} && docker compose down {volume_flag}", check=False)
+            self.ssh.execute(f"cd {quoted_site_path} && docker compose down {volume_flag}", check=False)
 
             # Remove files if requested
             files_removed = False
             if request.remove_files:
-                self.ssh.execute(f"rm -rf {site_path}", check=True)
+                self.ssh.execute(f"rm -rf {quoted_site_path}", check=True)
                 files_removed = True
 
             duration_ms = (time.time() - start_time) * 1000
             self.audit.log_action(
                 action_type=ActionType.SITE_DEPROVISION,
                 target_type=TargetType.SITE,
-                target_name=request.name,
+                target_name=validated_name,
                 status=ActionStatus.SUCCESS,
                 output=f"Site deprovisioned (volumes: {request.remove_volumes}, files: {request.remove_files})",
                 metadata={
@@ -595,9 +635,9 @@ class ProvisionService:
             )
 
             return DeprovisionResponse(
-                name=request.name,
+                name=validated_name,
                 status="success",
-                message=f"Site '{request.name}' deprovisioned successfully",
+                message=f"Site '{validated_name}' deprovisioned successfully",
                 volumes_removed=request.remove_volumes,
                 files_removed=files_removed,
             )
@@ -607,7 +647,7 @@ class ProvisionService:
             self.audit.log_action(
                 action_type=ActionType.SITE_DEPROVISION,
                 target_type=TargetType.SITE,
-                target_name=request.name,
+                target_name=validated_name,
                 status=ActionStatus.FAILURE,
                 error_message=str(e),
                 duration_ms=duration_ms,

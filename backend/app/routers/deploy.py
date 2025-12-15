@@ -11,6 +11,13 @@ from pydantic import BaseModel, Field
 
 from app.config import get_settings
 from app.services.ssh_client import SSHClientManager
+from app.validators import (
+    ValidationError,
+    validate_site_name,
+    validate_branch,
+    validate_git_url,
+    quote_shell_arg,
+)
 
 
 router = APIRouter(prefix="/api/deploy", tags=["deploy"])
@@ -71,19 +78,30 @@ def _normalize_repo_url(url: str) -> str:
 @router.post("/github", response_model=DeployResponse)
 async def deploy_from_github(request: GitDeployRequest):
     """Deploy site content from a GitHub repository."""
+    # Validate inputs
+    try:
+        validated_site = validate_site_name(request.site)
+        validated_branch = validate_branch(request.branch)
+        validated_url = validate_git_url(request.repo_url)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
     ssh = _get_ssh()
-    site_path = f"{settings.remote_sites_root}/{request.site}"
+    site_path = f"{settings.remote_sites_root}/{validated_site}"
+    quoted_site_path = quote_shell_arg(site_path)
 
     # Check if site exists
-    result = ssh.execute(f"test -d {site_path} && echo exists || echo missing")
+    result = ssh.execute(f"test -d {quoted_site_path} && echo exists || echo missing")
     if "missing" in result.stdout:
-        raise HTTPException(status_code=404, detail=f"Site '{request.site}' not found")
+        raise HTTPException(status_code=404, detail=f"Site '{validated_site}' not found")
 
-    repo_url = _normalize_repo_url(request.repo_url)
     app_path = _get_deploy_dir(ssh, site_path)
+    quoted_app_path = quote_shell_arg(app_path)
+    quoted_url = quote_shell_arg(validated_url)
+    quoted_branch = quote_shell_arg(validated_branch)
 
     # Check if already a git repo
-    result = ssh.execute(f"test -d {app_path}/.git && echo git || echo empty")
+    result = ssh.execute(f"test -d {quoted_app_path}/.git && echo git || echo empty")
     is_git = "git" in result.stdout
 
     outputs = []
@@ -93,14 +111,14 @@ async def deploy_from_github(request: GitDeployRequest):
             # Pull latest
             result = await asyncio.to_thread(
                 ssh.execute,
-                f"cd {app_path} && git fetch origin && git reset --hard origin/{request.branch}",
+                f"cd {quoted_app_path} && git fetch origin && git reset --hard origin/{validated_branch}",
                 check=False,
             )
         else:
             # Clone fresh
             result = await asyncio.to_thread(
                 ssh.execute,
-                f"rm -rf {app_path} && git clone --branch {request.branch} --depth 1 {repo_url} {app_path}",
+                f"rm -rf {quoted_app_path} && git clone --branch {quoted_branch} --depth 1 {quoted_url} {quoted_app_path}",
                 check=False,
             )
 
@@ -115,14 +133,15 @@ async def deploy_from_github(request: GitDeployRequest):
             )
 
         # Save repo info for future pulls
-        siteflow_config = {"repo_url": repo_url, "branch": request.branch}
+        siteflow_config = {"repo_url": validated_url, "branch": validated_branch}
         config_json = json.dumps(siteflow_config)
-        ssh.execute(f"echo '{config_json}' > {site_path}/.siteflow.json", check=False)
+        quoted_config = quote_shell_arg(config_json)
+        ssh.execute(f"echo {quoted_config} > {quoted_site_path}/.siteflow.json", check=False)
 
         # Rebuild and restart containers
         result = await asyncio.to_thread(
             ssh.execute,
-            f"cd {site_path} && docker compose down && docker compose build --no-cache && docker compose up -d",
+            f"cd {quoted_site_path} && docker compose down && docker compose build --no-cache && docker compose up -d",
             check=False,
         )
         outputs.append(result.stdout or "")
@@ -130,10 +149,10 @@ async def deploy_from_github(request: GitDeployRequest):
             outputs.append(result.stderr)
 
         return DeployResponse(
-            site=request.site,
+            site=validated_site,
             status="success" if result.exit_code == 0 else "partial",
             output="\n".join(outputs),
-            repo_url=repo_url,
+            repo_url=validated_url,
         )
 
     except HTTPException:
@@ -145,13 +164,20 @@ async def deploy_from_github(request: GitDeployRequest):
 @router.post("/pull", response_model=DeployResponse)
 async def pull_latest(request: PullRequest):
     """Pull latest changes from the configured repository."""
+    # Validate site name
+    try:
+        validated_site = validate_site_name(request.site)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
     ssh = _get_ssh()
-    site_path = f"{settings.remote_sites_root}/{request.site}"
+    site_path = f"{settings.remote_sites_root}/{validated_site}"
+    quoted_site_path = quote_shell_arg(site_path)
 
     # Check if site exists
-    result = ssh.execute(f"test -d {site_path} && echo exists || echo missing")
+    result = ssh.execute(f"test -d {quoted_site_path} && echo exists || echo missing")
     if "missing" in result.stdout:
-        raise HTTPException(status_code=404, detail=f"Site '{request.site}' not found")
+        raise HTTPException(status_code=404, detail=f"Site '{validated_site}' not found")
 
     # Read siteflow config
     try:
@@ -163,15 +189,22 @@ async def pull_latest(request: PullRequest):
             detail="No deployment configured. Use 'Deploy from GitHub' first.",
         )
 
+    # Validate branch from config
     branch = config.get("branch", "main")
+    try:
+        validated_branch = validate_branch(branch)
+    except ValidationError:
+        validated_branch = "main"  # Fallback to safe default
+
     app_path = _get_deploy_dir(ssh, site_path)
+    quoted_app_path = quote_shell_arg(app_path)
 
     outputs = []
 
     # Pull latest
     result = await asyncio.to_thread(
         ssh.execute,
-        f"cd {app_path} && git fetch origin && git reset --hard origin/{branch}",
+        f"cd {quoted_app_path} && git fetch origin && git reset --hard origin/{validated_branch}",
         check=False,
     )
     outputs.append(result.stdout or "")
@@ -180,7 +213,7 @@ async def pull_latest(request: PullRequest):
 
     if result.exit_code != 0:
         return DeployResponse(
-            site=request.site,
+            site=validated_site,
             status="error",
             output="\n".join(outputs),
             repo_url=config.get("repo_url"),
@@ -189,7 +222,7 @@ async def pull_latest(request: PullRequest):
     # Rebuild and restart
     result = await asyncio.to_thread(
         ssh.execute,
-        f"cd {site_path} && docker compose down && docker compose build --no-cache && docker compose up -d",
+        f"cd {quoted_site_path} && docker compose down && docker compose build --no-cache && docker compose up -d",
         check=False,
     )
     outputs.append(result.stdout or "")
@@ -197,7 +230,7 @@ async def pull_latest(request: PullRequest):
         outputs.append(result.stderr)
 
     return DeployResponse(
-        site=request.site,
+        site=validated_site,
         status="success" if result.exit_code == 0 else "partial",
         output="\n".join(outputs),
         repo_url=config.get("repo_url"),
@@ -207,13 +240,20 @@ async def pull_latest(request: PullRequest):
 @router.get("/{site}/status")
 async def get_deploy_status(site: str):
     """Get deployment status for a site."""
+    # Validate site name
+    try:
+        validated_site = validate_site_name(site)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
     ssh = _get_ssh()
-    site_path = f"{settings.remote_sites_root}/{site}"
+    site_path = f"{settings.remote_sites_root}/{validated_site}"
+    quoted_site_path = quote_shell_arg(site_path)
 
     # Check if site exists
-    result = ssh.execute(f"test -d {site_path} && echo exists || echo missing")
+    result = ssh.execute(f"test -d {quoted_site_path} && echo exists || echo missing")
     if "missing" in result.stdout:
-        raise HTTPException(status_code=404, detail=f"Site '{site}' not found")
+        raise HTTPException(status_code=404, detail=f"Site '{validated_site}' not found")
 
     # Read siteflow config
     try:
@@ -222,13 +262,14 @@ async def get_deploy_status(site: str):
 
         # Get last commit info
         app_path = f"{site_path}/app"
+        quoted_app_path = quote_shell_arg(app_path)
         result = ssh.execute(
-            f"cd {app_path} && git log -1 --format='%h %s (%ar)' 2>/dev/null || echo 'no commits'",
+            f"cd {quoted_app_path} && git log -1 --format='%h %s (%ar)' 2>/dev/null || echo 'no commits'",
         )
         last_commit = result.stdout.strip()
 
         return {
-            "site": site,
+            "site": validated_site,
             "configured": True,
             "repo_url": config.get("repo_url"),
             "branch": config.get("branch", "main"),
@@ -236,7 +277,7 @@ async def get_deploy_status(site: str):
         }
     except (FileNotFoundError, json.JSONDecodeError):
         return {
-            "site": site,
+            "site": validated_site,
             "configured": False,
             "repo_url": None,
             "branch": None,
@@ -250,13 +291,20 @@ async def deploy_from_upload(
     file: UploadFile = File(...),
 ):
     """Deploy site content from an uploaded zip file."""
+    # Validate site name
+    try:
+        validated_site = validate_site_name(site)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
     ssh = _get_ssh()
-    site_path = f"{settings.remote_sites_root}/{site}"
+    site_path = f"{settings.remote_sites_root}/{validated_site}"
+    quoted_site_path = quote_shell_arg(site_path)
 
     # Check if site exists
-    result = ssh.execute(f"test -d {site_path} && echo exists || echo missing")
+    result = ssh.execute(f"test -d {quoted_site_path} && echo exists || echo missing")
     if "missing" in result.stdout:
-        raise HTTPException(status_code=404, detail=f"Site '{site}' not found")
+        raise HTTPException(status_code=404, detail=f"Site '{validated_site}' not found")
 
     # Validate file
     if not file.filename:
@@ -272,6 +320,7 @@ async def deploy_from_upload(
 
     outputs = []
     app_path = _get_deploy_dir(ssh, site_path)
+    quoted_app_path = quote_shell_arg(app_path)
 
     try:
         # Base64 encode and transfer via SSH
@@ -280,28 +329,30 @@ async def deploy_from_upload(
         # Clear existing app directory and create fresh
         await asyncio.to_thread(
             ssh.execute,
-            f"rm -rf {app_path} && mkdir -p {app_path}",
+            f"rm -rf {quoted_app_path} && mkdir -p {quoted_app_path}",
             check=True,
         )
 
         # Transfer zip file (split into chunks to avoid command line limits)
-        remote_zip = f"/tmp/deploy_{site}.zip"
+        remote_zip = f"/tmp/deploy_{validated_site}.zip"
+        quoted_remote_zip = quote_shell_arg(remote_zip)
         chunk_size = 50000  # ~50KB chunks for base64
 
         # Write chunks
         for i in range(0, len(b64_content), chunk_size):
             chunk = b64_content[i : i + chunk_size]
+            quoted_chunk = quote_shell_arg(chunk)
             op = ">>" if i > 0 else ">"
             await asyncio.to_thread(
                 ssh.execute,
-                f"echo '{chunk}' {op} {remote_zip}.b64",
+                f"echo {quoted_chunk} {op} {quoted_remote_zip}.b64",
                 check=True,
             )
 
         # Decode and extract
         result = await asyncio.to_thread(
             ssh.execute,
-            f"base64 -d {remote_zip}.b64 > {remote_zip} && unzip -o {remote_zip} -d {app_path} && rm -f {remote_zip} {remote_zip}.b64",
+            f"base64 -d {quoted_remote_zip}.b64 > {quoted_remote_zip} && unzip -o {quoted_remote_zip} -d {quoted_app_path} && rm -f {quoted_remote_zip} {quoted_remote_zip}.b64",
             check=False,
         )
         outputs.append(result.stdout or "")
@@ -310,7 +361,7 @@ async def deploy_from_upload(
 
         if result.exit_code != 0:
             return DeployResponse(
-                site=site,
+                site=validated_site,
                 status="error",
                 output=f"Failed to extract zip: {result.stderr or result.stdout}",
                 repo_url=None,
@@ -319,19 +370,20 @@ async def deploy_from_upload(
         # Handle nested directory (if zip has a single root folder)
         result = await asyncio.to_thread(
             ssh.execute,
-            f"cd {app_path} && if [ $(ls -1 | wc -l) -eq 1 ] && [ -d \"$(ls -1)\" ]; then mv $(ls -1)/* . 2>/dev/null; rmdir $(ls -d */ 2>/dev/null) 2>/dev/null; fi; echo done",
+            f"cd {quoted_app_path} && if [ $(ls -1 | wc -l) -eq 1 ] && [ -d \"$(ls -1)\" ]; then mv $(ls -1)/* . 2>/dev/null; rmdir $(ls -d */ 2>/dev/null) 2>/dev/null; fi; echo done",
             check=False,
         )
 
         # Save deploy info
         siteflow_config = {"deploy_type": "upload", "filename": file.filename}
         config_json = json.dumps(siteflow_config)
-        ssh.execute(f"echo '{config_json}' > {site_path}/.siteflow.json", check=False)
+        quoted_config = quote_shell_arg(config_json)
+        ssh.execute(f"echo {quoted_config} > {quoted_site_path}/.siteflow.json", check=False)
 
         # Rebuild and restart containers
         result = await asyncio.to_thread(
             ssh.execute,
-            f"cd {site_path} && docker compose down && docker compose build --no-cache && docker compose up -d",
+            f"cd {quoted_site_path} && docker compose down && docker compose build --no-cache && docker compose up -d",
             check=False,
         )
         outputs.append(result.stdout or "")
@@ -339,7 +391,7 @@ async def deploy_from_upload(
             outputs.append(result.stderr)
 
         return DeployResponse(
-            site=site,
+            site=validated_site,
             status="success" if result.exit_code == 0 else "partial",
             output="\n".join(outputs),
             repo_url=None,
@@ -355,25 +407,33 @@ async def deploy_from_folder(
     files: list[UploadFile] = File(...),
 ):
     """Deploy site content from uploaded folder files."""
+    # Validate site name
+    try:
+        validated_site = validate_site_name(site)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
     ssh = _get_ssh()
-    site_path = f"{settings.remote_sites_root}/{site}"
+    site_path = f"{settings.remote_sites_root}/{validated_site}"
+    quoted_site_path = quote_shell_arg(site_path)
 
     # Check if site exists
-    result = ssh.execute(f"test -d {site_path} && echo exists || echo missing")
+    result = ssh.execute(f"test -d {quoted_site_path} && echo exists || echo missing")
     if "missing" in result.stdout:
-        raise HTTPException(status_code=404, detail=f"Site '{site}' not found")
+        raise HTTPException(status_code=404, detail=f"Site '{validated_site}' not found")
 
     if not files:
         raise HTTPException(status_code=400, detail="No files provided")
 
     outputs = []
     app_path = _get_deploy_dir(ssh, site_path)
+    quoted_app_path = quote_shell_arg(app_path)
 
     try:
         # Clear existing directory
         await asyncio.to_thread(
             ssh.execute,
-            f"rm -rf {app_path} && mkdir -p {app_path}",
+            f"rm -rf {quoted_app_path} && mkdir -p {quoted_app_path}",
             check=True,
         )
 
@@ -389,14 +449,20 @@ async def deploy_from_folder(
             if len(parts) > 1:
                 rel_path = "/".join(parts[1:])  # Skip root folder
 
+            # Sanitize path - reject traversal attempts
+            if ".." in rel_path or rel_path.startswith("/"):
+                continue
+
             remote_path = f"{app_path}/{rel_path}"
+            quoted_remote_path = quote_shell_arg(remote_path)
             remote_dir = "/".join(remote_path.rsplit("/", 1)[:-1])
+            quoted_remote_dir = quote_shell_arg(remote_dir)
 
             # Create directory if needed
             if remote_dir:
                 await asyncio.to_thread(
                     ssh.execute,
-                    f"mkdir -p '{remote_dir}'",
+                    f"mkdir -p {quoted_remote_dir}",
                     check=False,
                 )
 
@@ -409,21 +475,23 @@ async def deploy_from_folder(
 
             # Write file in chunks
             chunk_size = 50000
-            remote_tmp = f"/tmp/upload_{site}_{file_count}.b64"
+            remote_tmp = f"/tmp/upload_{validated_site}_{file_count}.b64"
+            quoted_remote_tmp = quote_shell_arg(remote_tmp)
 
             for i in range(0, len(b64_content), chunk_size):
                 chunk = b64_content[i : i + chunk_size]
+                quoted_chunk = quote_shell_arg(chunk)
                 op = ">>" if i > 0 else ">"
                 await asyncio.to_thread(
                     ssh.execute,
-                    f"echo '{chunk}' {op} {remote_tmp}",
+                    f"echo {quoted_chunk} {op} {quoted_remote_tmp}",
                     check=False,
                 )
 
             # Decode to final location
             await asyncio.to_thread(
                 ssh.execute,
-                f"base64 -d {remote_tmp} > '{remote_path}' && rm -f {remote_tmp}",
+                f"base64 -d {quoted_remote_tmp} > {quoted_remote_path} && rm -f {quoted_remote_tmp}",
                 check=False,
             )
             file_count += 1
@@ -433,12 +501,13 @@ async def deploy_from_folder(
         # Save deploy info
         siteflow_config = {"deploy_type": "folder", "file_count": file_count}
         config_json = json.dumps(siteflow_config)
-        ssh.execute(f"echo '{config_json}' > {site_path}/.siteflow.json", check=False)
+        quoted_config = quote_shell_arg(config_json)
+        ssh.execute(f"echo {quoted_config} > {quoted_site_path}/.siteflow.json", check=False)
 
         # Rebuild and restart containers
         result = await asyncio.to_thread(
             ssh.execute,
-            f"cd {site_path} && docker compose down && docker compose build --no-cache && docker compose up -d",
+            f"cd {quoted_site_path} && docker compose down && docker compose build --no-cache && docker compose up -d",
             check=False,
         )
         outputs.append(result.stdout or "")
@@ -446,7 +515,7 @@ async def deploy_from_folder(
             outputs.append(result.stderr)
 
         return DeployResponse(
-            site=site,
+            site=validated_site,
             status="success" if result.exit_code == 0 else "partial",
             output="\n".join(outputs),
             repo_url=None,

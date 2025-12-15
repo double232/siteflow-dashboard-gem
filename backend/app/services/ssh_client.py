@@ -5,6 +5,7 @@ import os
 import stat
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, Tuple
 
 import paramiko
@@ -40,18 +41,61 @@ class SSHClientManager:
                 return self._client
 
             client = paramiko.SSHClient()
-            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+            # Load system known_hosts for host key verification
+            # Check multiple possible locations
+            known_hosts_paths = [
+                Path.home() / ".ssh" / "known_hosts",
+                Path("/etc/ssh/ssh_known_hosts"),
+            ]
+
+            # Also check for custom known_hosts from settings
+            if hasattr(self.settings, "ssh_known_hosts") and self.settings.ssh_known_hosts:
+                known_hosts_paths.insert(0, Path(os.path.expanduser(self.settings.ssh_known_hosts)))
+
+            loaded_known_hosts = False
+            for kh_path in known_hosts_paths:
+                if kh_path.exists():
+                    try:
+                        client.load_host_keys(str(kh_path))
+                        logger.info(f"Loaded SSH known_hosts from {kh_path}")
+                        loaded_known_hosts = True
+                        break
+                    except Exception as e:
+                        logger.warning(f"Failed to load known_hosts from {kh_path}: {e}")
+
+            if not loaded_known_hosts:
+                # Fall back to RejectPolicy - will fail if host key not known
+                # This is safer than AutoAddPolicy as it prevents MITM
+                logger.warning(
+                    "No known_hosts file found. SSH connections will fail for unknown hosts. "
+                    "Add the server's host key to ~/.ssh/known_hosts or set SSH_KNOWN_HOSTS env var."
+                )
+                client.set_missing_host_key_policy(paramiko.RejectPolicy())
+            else:
+                # Use RejectPolicy - require host to be in known_hosts
+                client.set_missing_host_key_policy(paramiko.RejectPolicy())
+
             key_path = os.path.expanduser(self.settings.hetzner_key_path)
             if not os.path.exists(key_path):
                 raise FileNotFoundError(f"SSH key not found: {key_path}")
 
-            client.connect(
-                hostname=self.settings.hetzner_host,
-                port=self.settings.hetzner_port,
-                username=self.settings.hetzner_user,
-                key_filename=key_path,
-                timeout=self.settings.ssh_timeout,
-            )
+            try:
+                client.connect(
+                    hostname=self.settings.hetzner_host,
+                    port=self.settings.hetzner_port,
+                    username=self.settings.hetzner_user,
+                    key_filename=key_path,
+                    timeout=self.settings.ssh_timeout,
+                )
+            except paramiko.SSHException as e:
+                if "not found in known_hosts" in str(e).lower() or "host key" in str(e).lower():
+                    raise SSHCommandError(
+                        f"SSH host key verification failed for {self.settings.hetzner_host}. "
+                        f"Add the host key to known_hosts: ssh-keyscan -H {self.settings.hetzner_host} >> ~/.ssh/known_hosts"
+                    ) from e
+                raise
+
             self._client = client
             return client
 
