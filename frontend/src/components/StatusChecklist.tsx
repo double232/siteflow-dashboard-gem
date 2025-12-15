@@ -1,4 +1,5 @@
 import type { Site } from '../api/types';
+import type { MonitorStatus } from '../api/types/health';
 
 type CheckStatus = 'ok' | 'warning' | 'error';
 
@@ -11,6 +12,7 @@ interface CheckItem {
 
 interface Props {
   site: Site;
+  healthStatus?: MonitorStatus;
 }
 
 const getContainerCheck = (site: Site): CheckItem => {
@@ -89,31 +91,24 @@ const getCloudflareCheck = (site: Site): CheckItem => {
   };
 };
 
-const getReachableCheck = (site: Site): CheckItem => {
-  if (site.status === 'running') {
+const getReachableCheck = (healthStatus?: MonitorStatus): CheckItem => {
+  // Use real HTTP health check from Uptime Kuma
+  if (!healthStatus) {
+    return {
+      id: 'reachable',
+      label: 'Site reachable',
+      status: 'warning',
+      detail: 'No monitor configured',
+    };
+  }
+
+  if (healthStatus.up) {
+    const pingDetail = healthStatus.ping ? `${healthStatus.ping}ms` : 'OK';
     return {
       id: 'reachable',
       label: 'Site reachable',
       status: 'ok',
-      detail: 'All services healthy',
-    };
-  }
-
-  if (site.status === 'degraded') {
-    return {
-      id: 'reachable',
-      label: 'Site reachable',
-      status: 'warning',
-      detail: 'Some services degraded',
-    };
-  }
-
-  if (site.status === 'stopped') {
-    return {
-      id: 'reachable',
-      label: 'Site reachable',
-      status: 'warning',
-      detail: 'Container stopped (start to activate)',
+      detail: pingDetail,
     };
   }
 
@@ -121,26 +116,26 @@ const getReachableCheck = (site: Site): CheckItem => {
     id: 'reachable',
     label: 'Site reachable',
     status: 'error',
-    detail: 'Status unknown',
+    detail: 'Site down',
   };
 };
 
 const StatusIcon = ({ status }: { status: CheckStatus }) => {
   if (status === 'ok') {
-    return <span className="checklist-item__icon">[x]</span>;
+    return <span className="checklist-item__icon">[o]</span>;
   }
   if (status === 'warning') {
     return <span className="checklist-item__icon">[!]</span>;
   }
-  return <span className="checklist-item__icon">[ ]</span>;
+  return <span className="checklist-item__icon">[x]</span>;
 };
 
-export const StatusChecklist = ({ site }: Props) => {
+export const StatusChecklist = ({ site, healthStatus }: Props) => {
   const checks: CheckItem[] = [
     getContainerCheck(site),
     getCaddyCheck(site),
     getCloudflareCheck(site),
-    getReachableCheck(site),
+    getReachableCheck(healthStatus),
   ];
 
   return (

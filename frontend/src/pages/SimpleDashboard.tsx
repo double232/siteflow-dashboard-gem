@@ -1,7 +1,6 @@
 import { useState } from 'react';
 
-import { useAuditLogs, useContainerAction, useDeployFromGitHub, useDeprovisionSite, useFolderDeploy, usePullLatest, useProvisionSite, useReloadCaddy, useSiteAction, useSites, useTemplates, useUploadDeploy } from '../api/hooks';
-import { useWebSocket } from '../api/WebSocketContext';
+import { useAuditLogs, useContainerAction, useDeployFromGitHub, useDeprovisionSite, useFolderDeploy, useHealth, usePullLatest, useProvisionSite, useReloadCaddy, useSiteAction, useSites, useTemplates, useUploadDeploy } from '../api/hooks';
 import { SiteCardGrid } from '../components/SiteCardGrid';
 import type { TemplateType } from '../api/types/provision';
 
@@ -16,6 +15,7 @@ export const SimpleDashboard = () => {
   const { data: siteData, isFetching: sitesLoading, refetch: refetchSites } = useSites({ useWebSocket: true });
   const { data: templatesData } = useTemplates();
   const { data: auditData, refetch: refetchAudit } = useAuditLogs();
+  const { data: healthData } = useHealth();
   const { mutateAsync: actOnContainer } = useContainerAction();
   const { mutateAsync: actOnSite, isPending: siteActionPending } = useSiteAction();
   const { mutateAsync: provisionSite, isPending: provisionPending } = useProvisionSite();
@@ -25,7 +25,6 @@ export const SimpleDashboard = () => {
   const { mutateAsync: uploadDeploy, isPending: uploadPending } = useUploadDeploy();
   const { mutateAsync: folderDeploy, isPending: folderPending } = useFolderDeploy();
   const reloadCaddy = useReloadCaddy();
-  const { isConnected } = useWebSocket();
 
   const [commandHistory, setCommandHistory] = useState<CommandResult[]>([]);
   const [showProvision, setShowProvision] = useState(false);
@@ -336,10 +335,6 @@ export const SimpleDashboard = () => {
       <header className="dashboard__header">
         <h1>SiteFlow Dashboard</h1>
         <div className="header-controls">
-          <div className="ws-status">
-            <span className={`ws-status__indicator ${isConnected ? 'ws-status__indicator--connected' : 'ws-status__indicator--disconnected'}`} />
-            {isConnected ? 'Live' : 'Polling'}
-          </div>
           <button onClick={() => setShowProvision(!showProvision)}>
             {showProvision ? 'Cancel' : 'New Site'}
           </button>
@@ -453,6 +448,7 @@ export const SimpleDashboard = () => {
         <main className="dashboard-layout__cards">
           <SiteCardGrid
             sites={siteData?.sites}
+            healthData={healthData}
             isLoading={sitesLoading}
             onSiteAction={handleSiteAction}
             onViewLogs={handleViewLogs}

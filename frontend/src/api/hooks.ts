@@ -18,6 +18,7 @@ import type {
   PullRequest,
   UploadDeployRequest,
 } from './types/deploy';
+import type { HealthResponse } from './types/health';
 import type { RouteRequest, RouteResponse, RoutesListResponse } from './types';
 
 interface UseQueryOptions {
@@ -306,4 +307,16 @@ export const useDeployStatus = (site: string) =>
       return data;
     },
     enabled: !!site,
+  });
+
+// Health monitoring hook (Uptime Kuma integration)
+export const useHealth = () =>
+  useQuery<HealthResponse>({
+    queryKey: ['health'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<HealthResponse>('/api/health/');
+      return data;
+    },
+    refetchInterval: 30000, // Refresh every 30 seconds
+    staleTime: 15000,
   });
