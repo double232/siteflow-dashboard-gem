@@ -10,6 +10,8 @@ from app.schemas.audit import ActionStatus, ActionType, TargetType
 from app.schemas.provision import (
     DeprovisionRequest,
     DeprovisionResponse,
+    DetectRequest,
+    DetectResponse,
     ProvisionRequest,
     ProvisionResponse,
     SITE_TEMPLATES,
@@ -17,6 +19,7 @@ from app.schemas.provision import (
     TemplateType,
 )
 from app.services.audit import AuditService
+from app.services.cloudflare import CloudflareService
 from app.services.ssh_client import SSHClientManager
 
 
@@ -32,13 +35,13 @@ COMPOSE_TEMPLATES: dict[TemplateType, str] = {
     volumes:
       - ./public:/usr/share/nginx/html
     networks:
-      - siteflow
+      - web_proxy
     labels:
-      caddy: ${{DOMAIN}}
+      caddy: http://${{DOMAIN}}
       caddy.reverse_proxy: "{{{{upstreams 80}}}}"
 
 networks:
-  siteflow:
+  web_proxy:
     external: true
 """,
     TemplateType.NODE: """services:
@@ -58,9 +61,9 @@ networks:
     depends_on:
       - mongodb
     networks:
-      - siteflow
+      - web_proxy
     labels:
-      caddy: ${{DOMAIN}}
+      caddy: http://${{DOMAIN}}
       caddy.reverse_proxy: "{{{{upstreams 3000}}}}"
 
   mongodb:
@@ -70,14 +73,14 @@ networks:
     volumes:
       - mongo_data:/data/db
     networks:
-      - siteflow
+      - web_proxy
 
 volumes:
   node_modules:
   mongo_data:
 
 networks:
-  siteflow:
+  web_proxy:
     external: true
 """,
     TemplateType.PYTHON: """services:
@@ -97,9 +100,9 @@ networks:
     depends_on:
       - postgres
     networks:
-      - siteflow
+      - web_proxy
     labels:
-      caddy: ${{DOMAIN}}
+      caddy: http://${{DOMAIN}}
       caddy.reverse_proxy: "{{{{upstreams 8000}}}}"
 
   postgres:
@@ -113,14 +116,14 @@ networks:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
-      - siteflow
+      - web_proxy
 
 volumes:
   pip_cache:
   postgres_data:
 
 networks:
-  siteflow:
+  web_proxy:
     external: true
 """,
     TemplateType.WORDPRESS: """services:
@@ -138,9 +141,9 @@ networks:
     depends_on:
       - mariadb
     networks:
-      - siteflow
+      - web_proxy
     labels:
-      caddy: ${{DOMAIN}}
+      caddy: http://${{DOMAIN}}
       caddy.reverse_proxy: "{{{{upstreams 80}}}}"
 
   mariadb:
@@ -155,14 +158,14 @@ networks:
     volumes:
       - mariadb_data:/var/lib/mysql
     networks:
-      - siteflow
+      - web_proxy
 
 volumes:
   wp_content:
   mariadb_data:
 
 networks:
-  siteflow:
+  web_proxy:
     external: true
 """,
 }
@@ -174,17 +177,262 @@ CADDY_ROUTE_TEMPLATE = """
 }}
 """
 
+LANDING_PAGE_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{site_name} - Coming Soon</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #e4e4e4;
+        }}
+        .container {{
+            text-align: center;
+            padding: 2rem;
+            max-width: 600px;
+        }}
+        .logo {{
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, #e94560 0%, #533483 100%);
+            border-radius: 20px;
+            margin: 0 auto 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            font-weight: bold;
+            color: white;
+        }}
+        h1 {{
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            background: linear-gradient(90deg, #e94560, #533483);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }}
+        p {{
+            font-size: 1.1rem;
+            color: #a0a0a0;
+            line-height: 1.6;
+            margin-bottom: 2rem;
+        }}
+        .status {{
+            display: inline-block;
+            padding: 0.5rem 1.5rem;
+            background: rgba(233, 69, 96, 0.1);
+            border: 1px solid rgba(233, 69, 96, 0.3);
+            border-radius: 50px;
+            color: #e94560;
+            font-size: 0.9rem;
+        }}
+        .pulse {{
+            animation: pulse 2s infinite;
+        }}
+        @keyframes pulse {{
+            0%, 100% {{ opacity: 1; }}
+            50% {{ opacity: 0.5; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">{site_initial}</div>
+        <h1>{site_name}</h1>
+        <p>This site is being set up. Check back soon for something great.</p>
+        <span class="status pulse">Coming Soon</span>
+    </div>
+</body>
+</html>
+"""
+
+MAINTENANCE_PAGE_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{site_name} - Maintenance</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #e4e4e4;
+        }}
+        .container {{
+            text-align: center;
+            padding: 2rem;
+            max-width: 600px;
+        }}
+        .icon {{
+            font-size: 4rem;
+            margin-bottom: 1.5rem;
+        }}
+        h1 {{
+            font-size: 2rem;
+            margin-bottom: 1rem;
+            color: #f0f0f0;
+        }}
+        p {{
+            font-size: 1.1rem;
+            color: #a0a0a0;
+            line-height: 1.6;
+            margin-bottom: 2rem;
+        }}
+        .status {{
+            display: inline-block;
+            padding: 0.5rem 1.5rem;
+            background: rgba(250, 204, 21, 0.1);
+            border: 1px solid rgba(250, 204, 21, 0.3);
+            border-radius: 50px;
+            color: #facc15;
+            font-size: 0.9rem;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">&#9881;</div>
+        <h1>Under Maintenance</h1>
+        <p>We're making some improvements. This site will be back online shortly.</p>
+        <span class="status">Scheduled Maintenance</span>
+    </div>
+</body>
+</html>
+"""
+
 
 class ProvisionService:
     """Service for provisioning and deprovisioning sites."""
 
-    def __init__(self, settings: Settings, audit_service: AuditService):
+    def __init__(self, settings: Settings, audit_service: AuditService, cloudflare_service: CloudflareService):
         self.settings = settings
         self.ssh = SSHClientManager(settings)
         self.audit = audit_service
+        self.cloudflare = cloudflare_service
 
     def get_templates(self) -> list[SiteTemplate]:
         return SITE_TEMPLATES
+
+    def detect_project_type(self, request: DetectRequest) -> DetectResponse:
+        """Detect the project type from a git URL or existing path."""
+        import tempfile
+        import shutil
+
+        temp_dir = None
+        scan_path = None
+        files_checked: list[str] = []
+
+        try:
+            if request.git_url:
+                # Clone to temp directory for scanning
+                temp_dir = tempfile.mkdtemp(prefix="siteflow_detect_")
+                result = self.ssh.execute(
+                    f"git clone --depth 1 {request.git_url} {temp_dir}/repo 2>&1",
+                    check=False,
+                    timeout=60,
+                )
+                if result.return_code != 0:
+                    return DetectResponse(
+                        detected_type=TemplateType.STATIC,
+                        confidence="low",
+                        reason=f"Failed to clone repo: {result.stderr or result.stdout}",
+                        files_checked=[],
+                    )
+                scan_path = f"{temp_dir}/repo"
+            elif request.path:
+                scan_path = request.path
+            else:
+                return DetectResponse(
+                    detected_type=TemplateType.STATIC,
+                    confidence="low",
+                    reason="No git_url or path provided",
+                    files_checked=[],
+                )
+
+            # Check for indicator files
+            indicators = {
+                "package.json": TemplateType.NODE,
+                "requirements.txt": TemplateType.PYTHON,
+                "pyproject.toml": TemplateType.PYTHON,
+                "setup.py": TemplateType.PYTHON,
+                "Pipfile": TemplateType.PYTHON,
+                "manage.py": TemplateType.PYTHON,
+                "wp-config.php": TemplateType.WORDPRESS,
+                "wp-content": TemplateType.WORDPRESS,
+            }
+
+            # List files in root
+            result = self.ssh.execute(f"ls -la {scan_path} 2>/dev/null || echo 'DIR_NOT_FOUND'", check=False)
+            if "DIR_NOT_FOUND" in result.stdout:
+                return DetectResponse(
+                    detected_type=TemplateType.STATIC,
+                    confidence="low",
+                    reason="Directory not found",
+                    files_checked=[],
+                )
+
+            root_files = result.stdout.strip().split("\n")
+            files_checked = [f.split()[-1] for f in root_files if len(f.split()) > 0]
+
+            # Check each indicator
+            for indicator, template_type in indicators.items():
+                check_result = self.ssh.execute(
+                    f"test -e {scan_path}/{indicator} && echo 'FOUND' || echo 'NOT_FOUND'",
+                    check=False,
+                )
+                if "FOUND" in check_result.stdout:
+                    # Determine confidence based on what we found
+                    confidence = "high"
+                    if indicator in ["package.json"]:
+                        # Check if it's a Node project with specific frameworks
+                        pkg_result = self.ssh.execute(f"cat {scan_path}/package.json 2>/dev/null", check=False)
+                        if "payload" in pkg_result.stdout.lower() or "express" in pkg_result.stdout.lower():
+                            confidence = "high"
+                            reason = f"Found {indicator} with Node.js framework"
+                        else:
+                            reason = f"Found {indicator}"
+                    elif indicator in ["wp-config.php", "wp-content"]:
+                        confidence = "high"
+                        reason = f"Found WordPress indicator: {indicator}"
+                    elif indicator == "manage.py":
+                        confidence = "high"
+                        reason = "Found Django manage.py"
+                    else:
+                        reason = f"Found {indicator}"
+
+                    return DetectResponse(
+                        detected_type=template_type,
+                        confidence=confidence,
+                        reason=reason,
+                        files_checked=files_checked[:10],
+                    )
+
+            # Default to static
+            return DetectResponse(
+                detected_type=TemplateType.STATIC,
+                confidence="medium",
+                reason="No framework indicators found, defaulting to static site",
+                files_checked=files_checked[:10],
+            )
+
+        finally:
+            # Cleanup temp directory
+            if temp_dir:
+                self.ssh.execute(f"rm -rf {temp_dir}", check=False)
 
     def _generate_secret(self) -> str:
         import secrets
@@ -199,24 +447,27 @@ class ProvisionService:
         }
         return port_map.get(template, 80)
 
-    def _ensure_siteflow_network(self) -> None:
-        """Ensure the siteflow Docker network exists."""
+    def _ensure_web_proxy_network(self) -> None:
+        """Ensure the web_proxy Docker network exists."""
         result = self.ssh.execute(
-            "docker network ls --filter name=siteflow --format '{{.Name}}'",
+            "docker network ls --filter name=web_proxy --format '{{.Name}}'",
             check=False,
         )
-        if "siteflow" not in result.stdout:
-            logger.info("Creating siteflow Docker network")
-            self.ssh.execute("docker network create siteflow", check=True)
+        if "web_proxy" not in result.stdout:
+            logger.info("Creating web_proxy Docker network")
+            self.ssh.execute("docker network create web_proxy", check=True)
 
     def provision_site(self, request: ProvisionRequest) -> ProvisionResponse:
         """Provision a new site with the specified template."""
         start_time = time.time()
         site_path = f"{self.settings.remote_sites_root}/{request.name}"
 
+        # Use provided domain or default to {name}.double232.com
+        domain = request.domain or f"{request.name}.double232.com"
+
         try:
-            # Ensure siteflow network exists
-            self._ensure_siteflow_network()
+            # Ensure web_proxy network exists
+            self._ensure_web_proxy_network()
 
             # Check if site already exists
             result = self.ssh.execute(f"test -d {site_path} && echo exists || echo missing")
@@ -235,14 +486,24 @@ class ProvisionService:
             self._write_remote_file(f"{site_path}/docker-compose.yml", compose_content)
 
             # Create .env file with DOMAIN
-            if request.domain:
-                self._write_remote_file(f"{site_path}/.env", f"DOMAIN={request.domain}\n")
+            self._write_remote_file(f"{site_path}/.env", f"DOMAIN={domain}\n")
 
             # Create template-specific directories
             self._create_template_dirs(request.name, request.template, site_path)
 
             # Start containers (caddy-docker-proxy auto-discovers labels)
             self.ssh.execute(f"cd {site_path} && docker compose up -d", check=True)
+
+            # Add public hostname to Cloudflare tunnel and create DNS record
+            # Route through localhost:80 (caddy-docker-proxy) which handles routing to containers
+            service_url = "http://localhost:80"
+            cf_success = self.cloudflare.add_public_hostname(domain, service_url)
+            if not cf_success:
+                logger.warning(f"Failed to add Cloudflare tunnel hostname for {domain}")
+
+            dns_success = self.cloudflare.add_dns_record(domain)
+            if not dns_success:
+                logger.warning(f"Failed to create Cloudflare DNS record for {domain}")
 
             duration_ms = (time.time() - start_time) * 1000
             self.audit.log_action(
@@ -251,7 +512,7 @@ class ProvisionService:
                 target_name=request.name,
                 status=ActionStatus.SUCCESS,
                 output=f"Site provisioned with template {request.template.value}",
-                metadata={"template": request.template.value, "domain": request.domain},
+                metadata={"template": request.template.value, "domain": domain},
                 duration_ms=duration_ms,
             )
 
@@ -259,9 +520,9 @@ class ProvisionService:
                 name=request.name,
                 template=request.template,
                 status="success",
-                message=f"Site '{request.name}' provisioned successfully",
+                message=f"Site '{request.name}' provisioned successfully at {domain}",
                 path=site_path,
-                domain=request.domain,
+                domain=domain,
             )
 
         except Exception as e:
@@ -287,6 +548,27 @@ class ProvisionService:
             result = self.ssh.execute(f"test -d {site_path} && echo exists || echo missing")
             if "missing" in result.stdout:
                 raise ValueError(f"Site '{request.name}' does not exist")
+
+            # Read domain from .env file to remove from Cloudflare
+            domain = None
+            try:
+                env_result = self.ssh.execute(f"cat {site_path}/.env 2>/dev/null || true", check=False)
+                for line in env_result.stdout.split("\n"):
+                    if line.startswith("DOMAIN="):
+                        domain = line.split("=", 1)[1].strip()
+                        break
+            except Exception as e:
+                logger.warning(f"Could not read domain from .env: {e}")
+
+            # Remove hostname from Cloudflare tunnel and DNS record
+            if domain:
+                cf_success = self.cloudflare.remove_public_hostname(domain)
+                if not cf_success:
+                    logger.warning(f"Failed to remove Cloudflare tunnel hostname for {domain}")
+
+                dns_success = self.cloudflare.remove_dns_record(domain)
+                if not dns_success:
+                    logger.warning(f"Failed to remove Cloudflare DNS record for {domain}")
 
             # Stop and remove containers (caddy-docker-proxy auto-removes routes)
             volume_flag = "-v" if request.remove_volumes else ""
@@ -339,19 +621,34 @@ class ProvisionService:
 
     def _create_template_dirs(self, name: str, template: TemplateType, site_path: str) -> None:
         """Create template-specific directories and files."""
+        # Generate landing page for all templates
+        site_initial = name[0].upper() if name else "S"
+        display_name = name.replace("-", " ").title()
+        landing_page = LANDING_PAGE_TEMPLATE.format(
+            site_name=display_name,
+            site_initial=site_initial,
+        )
+        maintenance_page = MAINTENANCE_PAGE_TEMPLATE.format(site_name=display_name)
+
         if template == TemplateType.STATIC:
             self.ssh.execute(f"mkdir -p {site_path}/public {site_path}/admin", check=True)
-            index_html = f"<html><body><h1>Welcome to {name}</h1></body></html>"
-            self._write_remote_file(f"{site_path}/public/index.html", index_html)
+            self._write_remote_file(f"{site_path}/public/index.html", landing_page)
+            self._write_remote_file(f"{site_path}/public/maintenance.html", maintenance_page)
 
         elif template == TemplateType.NODE:
-            self.ssh.execute(f"mkdir -p {site_path}/app", check=True)
+            self.ssh.execute(f"mkdir -p {site_path}/app {site_path}/public", check=True)
+            self._write_remote_file(f"{site_path}/public/index.html", landing_page)
+            self._write_remote_file(f"{site_path}/public/maintenance.html", maintenance_page)
 
         elif template == TemplateType.PYTHON:
-            self.ssh.execute(f"mkdir -p {site_path}/app", check=True)
+            self.ssh.execute(f"mkdir -p {site_path}/app {site_path}/static", check=True)
+            self._write_remote_file(f"{site_path}/static/index.html", landing_page)
+            self._write_remote_file(f"{site_path}/static/maintenance.html", maintenance_page)
 
         elif template == TemplateType.WORDPRESS:
-            pass  # WordPress handles its own directories
+            # WordPress has its own structure, but we can add maintenance page
+            self.ssh.execute(f"mkdir -p {site_path}/maintenance", check=True)
+            self._write_remote_file(f"{site_path}/maintenance/index.html", maintenance_page)
 
     def _add_caddy_route(self, name: str, domain: str, template: TemplateType) -> None:
         """Add a route to the Caddyfile."""

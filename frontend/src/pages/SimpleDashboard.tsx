@@ -1,8 +1,16 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
-import { useAuditLogs, useContainerAction, useDeployFromGitHub, useDeprovisionSite, useFolderDeploy, useHealth, usePullLatest, useProvisionSite, useReloadCaddy, useSiteAction, useSites, useTemplates, useUploadDeploy } from '../api/hooks';
+import { useAuditLogs, useContainerAction, useDeployFromGitHub, useDeprovisionSite, useFolderDeploy, useHealth, usePullLatest, useProvisionSite, useReloadCaddy, useSiteAction, useSites, useUploadDeploy } from '../api/hooks';
 import { SiteCardGrid } from '../components/SiteCardGrid';
 import type { TemplateType } from '../api/types/provision';
+
+type Theme = 'light' | 'dark';
+
+const getInitialTheme = (): Theme => {
+  const stored = localStorage.getItem('theme') as Theme | null;
+  if (stored) return stored;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+};
 
 interface CommandResult {
   title: string;
@@ -13,7 +21,6 @@ interface CommandResult {
 
 export const SimpleDashboard = () => {
   const { data: siteData, isFetching: sitesLoading, refetch: refetchSites } = useSites({ useWebSocket: true });
-  const { data: templatesData } = useTemplates();
   const { data: auditData, refetch: refetchAudit } = useAuditLogs();
   const { data: healthData } = useHealth();
   const { mutateAsync: actOnContainer } = useContainerAction();
@@ -29,8 +36,11 @@ export const SimpleDashboard = () => {
   const [commandHistory, setCommandHistory] = useState<CommandResult[]>([]);
   const [showProvision, setShowProvision] = useState(false);
   const [provisionName, setProvisionName] = useState('');
-  const [provisionTemplate, setProvisionTemplate] = useState<TemplateType>('static');
   const [provisionDomain, setProvisionDomain] = useState('');
+  const [provisionSource, setProvisionSource] = useState<'git' | 'folder' | 'zip'>('git');
+  const [provisionGitUrl, setProvisionGitUrl] = useState('');
+  const [provisionFiles, setProvisionFiles] = useState<FileList | null>(null);
+  const [provisionStatus, setProvisionStatus] = useState('');
   const [deploySite, setDeploySite] = useState<string | null>(null);
   const [deployMode, setDeployMode] = useState<'git' | 'upload'>('git');
   const [deployRepo, setDeployRepo] = useState('');
@@ -119,6 +129,23 @@ export const SimpleDashboard = () => {
     }
   };
 
+  // Detect project type from files
+  const detectFromFiles = (files: FileList): string => {
+    const fileNames: string[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const path = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+      fileNames.push(path);
+    }
+    if (fileNames.some(f => f.includes('package.json'))) return 'node';
+    if (fileNames.some(f => f.includes('requirements.txt'))) return 'python';
+    if (fileNames.some(f => f.includes('pyproject.toml'))) return 'python';
+    if (fileNames.some(f => f.includes('manage.py'))) return 'python';
+    if (fileNames.some(f => f.includes('wp-config.php'))) return 'wordpress';
+    if (fileNames.some(f => f.includes('wp-content/'))) return 'wordpress';
+    return 'static';
+  };
+
   const handleProvision = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!provisionName.match(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/) && provisionName.length > 1) {
@@ -130,24 +157,54 @@ export const SimpleDashboard = () => {
       });
       return;
     }
+
     try {
+      let detectedType = 'static';
       const domain = provisionDomain || `${provisionName}.double232.com`;
-      const result = await provisionSite({
-        name: provisionName,
-        template: provisionTemplate,
-        domain,
-      });
+
+      // Step 1: Detect type
+      setProvisionStatus('Detecting project type...');
+      if (provisionSource === 'git') {
+        if (!provisionGitUrl) {
+          addToHistory({ title: 'provision', output: 'Please enter a Git URL', isError: true, timestamp: new Date() });
+          setProvisionStatus('');
+          return;
+        }
+        const { data } = await import('../api/client').then(m => m.apiClient.post('/api/provision/detect', { git_url: provisionGitUrl }));
+        detectedType = data.detected_type;
+      } else if (provisionFiles && provisionFiles.length > 0) {
+        detectedType = detectFromFiles(provisionFiles);
+      }
+
+      // Step 2: Provision
+      setProvisionStatus(`Creating ${detectedType} site...`);
+      await provisionSite({ name: provisionName, template: detectedType as TemplateType, domain });
+
+      // Step 3: Deploy content
+      setProvisionStatus('Deploying content...');
+      if (provisionSource === 'git') {
+        await deployFromGitHub({ site: provisionName, repo_url: provisionGitUrl, branch: 'main' });
+      } else if (provisionSource === 'folder' && provisionFiles) {
+        await folderDeploy({ site: provisionName, files: provisionFiles });
+      } else if (provisionSource === 'zip' && provisionFiles?.[0]) {
+        await uploadDeploy({ site: provisionName, file: provisionFiles[0] });
+      }
+
       addToHistory({
         title: `provision: ${provisionName}`,
-        output: result.message || 'Site provisioned',
+        output: `Site created with ${detectedType} template and content deployed`,
         isError: false,
         timestamp: new Date(),
       });
       setProvisionName('');
       setProvisionDomain('');
+      setProvisionGitUrl('');
+      setProvisionFiles(null);
+      setProvisionStatus('');
       setShowProvision(false);
       refetchSites();
     } catch (e) {
+      setProvisionStatus('');
       addToHistory({
         title: `provision: ${provisionName}`,
         output: e instanceof Error ? e.message : 'Provision failed',
@@ -328,7 +385,16 @@ export const SimpleDashboard = () => {
     }
   };
 
-  const templates = templatesData?.templates || [];
+  const [theme, setTheme] = useState<Theme>(getInitialTheme);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === 'light' ? 'dark' : 'light');
+  };
 
   return (
     <div className="simple-dashboard">
@@ -341,6 +407,9 @@ export const SimpleDashboard = () => {
           <button onClick={handleShowAudit}>Audit</button>
           <button onClick={() => refetchSites()} disabled={sitesLoading}>Refresh</button>
           <button onClick={handleReloadCaddy} disabled={reloadCaddy.isPending}>Reload Caddy</button>
+          <button onClick={toggleTheme} className="theme-toggle">
+            {theme === 'light' ? 'Dark' : 'Light'}
+          </button>
         </div>
       </header>
 
@@ -349,28 +418,78 @@ export const SimpleDashboard = () => {
           <input
             type="text"
             value={provisionName}
-            onChange={(e) => setProvisionName(e.target.value.toLowerCase())}
+            onChange={(e) => setProvisionName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
             placeholder="site-name"
             required
+            disabled={provisionPending}
           />
-          <div className="template-buttons">
-            {templates.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                className={`template-btn ${provisionTemplate === t.id ? 'template-btn--active' : ''}`}
-                onClick={() => setProvisionTemplate(t.id)}
-              >
-                {t.id}
-              </button>
-            ))}
-          </div>
           <input
             type="text"
             value={provisionDomain}
             onChange={(e) => setProvisionDomain(e.target.value)}
             placeholder={`${provisionName || 'site'}.double232.com`}
+            disabled={provisionPending}
           />
+          <div className="template-buttons">
+            <button
+              type="button"
+              className={`template-btn ${provisionSource === 'git' ? 'template-btn--active' : ''}`}
+              onClick={() => setProvisionSource('git')}
+              disabled={provisionPending}
+            >
+              Git
+            </button>
+            <button
+              type="button"
+              className={`template-btn ${provisionSource === 'folder' ? 'template-btn--active' : ''}`}
+              onClick={() => setProvisionSource('folder')}
+              disabled={provisionPending}
+            >
+              Folder
+            </button>
+            <button
+              type="button"
+              className={`template-btn ${provisionSource === 'zip' ? 'template-btn--active' : ''}`}
+              onClick={() => setProvisionSource('zip')}
+              disabled={provisionPending}
+            >
+              Zip
+            </button>
+          </div>
+          {provisionSource === 'git' && (
+            <input
+              type="text"
+              value={provisionGitUrl}
+              onChange={(e) => setProvisionGitUrl(e.target.value)}
+              placeholder="https://github.com/user/repo"
+              disabled={provisionPending}
+            />
+          )}
+          {provisionSource === 'folder' && (
+            <label className="file-input-btn">
+              {provisionFiles ? `${provisionFiles.length} files` : 'Choose Folder'}
+              <input
+                type="file"
+                onChange={(e) => setProvisionFiles(e.target.files)}
+                disabled={provisionPending}
+                hidden
+                {...{ webkitdirectory: '', directory: '' } as React.InputHTMLAttributes<HTMLInputElement>}
+              />
+            </label>
+          )}
+          {provisionSource === 'zip' && (
+            <label className="file-input-btn">
+              {provisionFiles?.[0]?.name || 'Choose Zip'}
+              <input
+                type="file"
+                accept=".zip"
+                onChange={(e) => setProvisionFiles(e.target.files)}
+                disabled={provisionPending}
+                hidden
+              />
+            </label>
+          )}
+          {provisionStatus && <span className="provision-status">{provisionStatus}</span>}
           <button type="submit" disabled={provisionPending || !provisionName}>
             {provisionPending ? 'Creating...' : 'Create'}
           </button>

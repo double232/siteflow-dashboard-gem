@@ -43,3 +43,15 @@ export interface DeprovisionResponse {
 export interface TemplateListResponse {
   templates: SiteTemplate[];
 }
+
+export interface DetectRequest {
+  git_url?: string;
+  path?: string;
+}
+
+export interface DetectResponse {
+  detected_type: TemplateType;
+  confidence: 'high' | 'medium' | 'low';
+  reason: string;
+  files_checked: string[];
+}

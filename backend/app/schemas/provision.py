@@ -57,6 +57,18 @@ class TemplateListResponse(BaseModel):
     templates: list[SiteTemplate]
 
 
+class DetectRequest(BaseModel):
+    git_url: str | None = None
+    path: str | None = None
+
+
+class DetectResponse(BaseModel):
+    detected_type: TemplateType
+    confidence: str  # high, medium, low
+    reason: str
+    files_checked: list[str] = Field(default_factory=list)
+
+
 # Pre-defined templates
 SITE_TEMPLATES: list[SiteTemplate] = [
     SiteTemplate(

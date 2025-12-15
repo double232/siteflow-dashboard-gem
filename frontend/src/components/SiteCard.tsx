@@ -42,7 +42,19 @@ export const SiteCard = ({
           <span className="site-card__info-label">Domains:</span>
           <span className="site-card__info-value">
             {site.caddy_domains.length > 0
-              ? site.caddy_domains.join(', ')
+              ? site.caddy_domains.map((domain, idx) => (
+                  <span key={domain}>
+                    <a
+                      href={`https://${domain.replace(/^https?:\/\//, '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="site-card__domain-link"
+                    >
+                      {domain}
+                    </a>
+                    {idx < site.caddy_domains.length - 1 && ', '}
+                  </span>
+                ))
               : 'None configured'}
           </span>
         </div>
@@ -52,6 +64,18 @@ export const SiteCard = ({
             {totalCount > 0
               ? `${runningCount}/${totalCount} running`
               : 'None'}
+          </span>
+        </div>
+        <div className="site-card__info-row">
+          <span className="site-card__info-label">Ports:</span>
+          <span className="site-card__info-value site-card__info-value--mono">
+            {(() => {
+              const ports = site.containers
+                .flatMap(c => c.ports || [])
+                .map(p => p.public ? `${p.public}->${p.private}` : p.private)
+                .filter((v, i, a) => a.indexOf(v) === i);
+              return ports.length > 0 ? ports.join(', ') : 'None';
+            })()}
           </span>
         </div>
         <div className="site-card__info-row">

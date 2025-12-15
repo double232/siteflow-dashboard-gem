@@ -6,6 +6,8 @@ import type { AuditLogResponse } from './types/audit';
 import type {
   DeprovisionRequest,
   DeprovisionResponse,
+  DetectRequest,
+  DetectResponse,
   ProvisionRequest,
   ProvisionResponse,
   TemplateListResponse,
@@ -128,6 +130,18 @@ export const useTemplates = () =>
     },
     staleTime: 5 * 60 * 1000, // Templates rarely change
   });
+
+export const useDetectProjectType = () => {
+  return useMutation({
+    mutationFn: async (request: DetectRequest) => {
+      const { data } = await apiClient.post<DetectResponse>(
+        '/api/provision/detect',
+        request,
+      );
+      return data;
+    },
+  });
+};
 
 export const useProvisionSite = () => {
   const queryClient = useQueryClient();

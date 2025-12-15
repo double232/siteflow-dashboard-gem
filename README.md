@@ -1,64 +1,206 @@
 # SiteFlow Dashboard
 
-A full-stack dashboard that visualizes every website deployed on the Hetzner server as an interactive flow (Cloudflare Tunnel → Domains → Caddy Gateway → Docker containers → Sites). It also lets you trigger operational actions (container controls, Caddy reload) directly from the UI.
+A full-stack dashboard for managing Docker-based websites on a Hetzner server. Provides site provisioning, deployment, monitoring, and operational controls through a clean card-based UI.
+
+## Features
+
+- **Site Provisioning** - Create new sites with auto-detection of project type (Node.js, Python, WordPress, Static)
+- **Multiple Deployment Methods** - Deploy from Git repositories, folder uploads, or ZIP files
+- **Cloudflare Integration** - Automatic DNS records and tunnel hostname configuration
+- **Uptime Kuma Integration** - Health monitoring with automatic monitor creation for new sites
+- **Container Management** - Start, stop, restart containers directly from the UI
+- **Audit Logging** - Track all actions with timestamps and outputs
+- **Real-time Updates** - WebSocket-based live status updates
+- **Landing Pages** - Auto-generated "Coming Soon" pages for sites without deployments
+
+## Architecture
+
+```
+Internet -> Cloudflare Tunnel -> Caddy (reverse proxy) -> Docker containers -> Sites
+                                      ^
+                                      |
+                              caddy-docker-proxy
+                              (auto-discovers labels)
+```
 
 ## Structure
 
 ```
 siteflow-dashboard/
-├── backend/   # FastAPI service that talks to Hetzner + Cloudflare
-└── frontend/  # Vite + React + React Flow graph UI
+├── backend/           # FastAPI service
+│   ├── app/
+│   │   ├── routers/   # API endpoints
+│   │   ├── services/  # Business logic
+│   │   ├── schemas/   # Pydantic models
+│   │   └── main.py    # App entry point
+│   └── requirements.txt
+├── frontend/          # React + Vite
+│   └── src/
+│       ├── components/  # UI components
+│       ├── pages/       # Dashboard page
+│       └── api/         # API hooks
+├── docker-compose.yml   # Production deployment
+└── Dockerfile
 ```
 
-## Backend
+## Quick Start
 
-1. Create a virtual environment and install dependencies:
-   ```bash
-   cd backend
-   python -m venv .venv
-   .venv\Scripts\activate
-   pip install -r requirements.txt
+### Production (Docker)
+
+1. Clone the repository
+2. Copy `.env.example` to `.env` and configure:
+   ```env
+   # Hetzner SSH
+   HETZNER_HOST=your-server-ip
+   HETZNER_USER=root
+   HETZNER_KEY_PATH=/path/to/ssh/key
+
+   # Paths on remote server
+   REMOTE_SITES_ROOT=/opt/sites
+   REMOTE_GATEWAY_ROOT=/opt/gateway
+   REMOTE_CADDYFILE=/opt/gateway/Caddyfile
+
+   # Cloudflare
+   CF_ACCOUNT_ID=your-account-id
+   CF_API_TOKEN=your-api-token
+   CF_TUNNEL_ID=your-tunnel-id
+
+   # Uptime Kuma
+   KUMA_URL=http://uptime-kuma:3001
+   KUMA_USERNAME=admin
+   KUMA_PASSWORD=your-password
+
+   # NAS Backup Monitoring (optional)
+   NAS_HOST=192.168.1.x
+   NAS_USER=user
+   NAS_PASSWORD=password
+   NAS_SHARE=volume1
+   NAS_BACKUP_PATH=backups
    ```
-2. Copy `.env.example` to `.env` and fill in:
-   - `HETZNER_HOST`, `HETZNER_KEY_PATH`, etc.
-   - Optional `CF_*` values for Cloudflare tunnel insights.
-3. Run the API:
+
+3. Deploy:
    ```bash
-   uvicorn app.main:app --reload --port 8000
+   docker compose up -d --build
    ```
 
-### API Highlights
-- `GET /api/sites` → aggregated site/container/Caddy data (cached; force refresh via `?refresh=true`).
-- `GET /api/graph` → nodes/edges ready for the React Flow canvas.
-- `POST /api/sites/containers/{name}/{start|stop|restart|logs}` → one-click controls.
-- `POST /api/sites/caddy/reload` → redeploy gateway config.
+### Development
 
-The Hetzner integration lists `/opt/sites`, parses each `docker-compose.yml`, matches live Docker containers, and maps Caddy reverse proxies to upstream services. Optional Cloudflare integration queries tunnel details (hostnames + active connectors) and threads them into the flow graph.
+**Backend:**
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate  # or .venv\Scripts\activate on Windows
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
 
-## Frontend
+**Frontend:**
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-1. Install deps & run the dev server:
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
-2. Set `VITE_API_BASE_URL` (defaults to `http://localhost:8000`). The dev server proxies `/api/*` automatically.
-3. Build for production via `npm run build` (output → `frontend/dist`).
+## API Endpoints
 
-### UI Features
-- **Flow Canvas**: React Flow + Dagre auto-layout for Tunnel → Domain → Caddy → Container → Site. Nodes are color-coded, status-tagged, and clickable.
-- **Site List**: left rail that tracks every deployment with domain/container counts.
-- **Inspector Panel**: shows domains, compose path, per-container controls, and the output of the last action.
-- **Global Controls**: refresh both datasets and reload Caddy without SSH.
+### Sites
+- `GET /api/sites/` - List all sites with container status
+- `POST /api/sites/{site}/{action}` - Start/stop/restart a site
+- `POST /api/sites/containers/{container}/{action}` - Control individual containers
+- `POST /api/sites/caddy/reload` - Reload Caddy configuration
 
-## Deployment Notes
-- Keep `.env` on the backend only; the frontend never sees SSH or Cloudflare secrets.
-- Recommend running FastAPI behind systemd/Gunicorn/Uvicorn and serving the compiled frontend via Caddy or the existing gateway.
-- Point production builds at the remote API by setting `VITE_API_BASE_URL=https://<your-api-host>` before `npm run build`.
+### Provisioning
+- `GET /api/provision/templates` - List available templates
+- `POST /api/provision/detect` - Auto-detect project type from Git URL
+- `POST /api/provision/` - Create a new site
+- `DELETE /api/provision/` - Remove a site
 
-## Next Steps
-1. Extend actions to provision/deprovision via your automation scripts.
-2. Persist action/audit history (SQLite/Postgres).
-3. Add WebSocket pushes for instant status changes.
-4. Overlay performance metrics (CPU/memory) per container in the node metadata.
+### Deployment
+- `POST /api/deploy/github` - Deploy from Git repository
+- `POST /api/deploy/upload` - Deploy from ZIP file
+- `POST /api/deploy/folder` - Deploy from folder upload
+- `POST /api/deploy/pull` - Pull latest changes
+
+### Health & Monitoring
+- `GET /api/health/` - Get Uptime Kuma monitor status for all sites
+- `POST /api/health/monitors` - Create a monitor
+- `DELETE /api/health/monitors/{site_name}` - Delete a monitor
+
+### Audit
+- `GET /api/audit/logs` - Query audit log with filters
+- `POST /api/audit/cleanup` - Remove old audit entries
+
+### WebSocket
+- `WS /api/ws` - Real-time site status updates
+
+## Site Templates
+
+When provisioning, the system auto-detects project type:
+
+| Type | Detection | Stack |
+|------|-----------|-------|
+| **Node.js** | `package.json` | Node 20 + MongoDB |
+| **Python** | `requirements.txt`, `pyproject.toml`, `manage.py` | Python 3.12 + PostgreSQL |
+| **WordPress** | `wp-config.php`, `wp-content/` | WordPress + MariaDB |
+| **Static** | Default | Nginx |
+
+## UI Overview
+
+The dashboard displays sites as cards with:
+
+- **Status Badge** - Running/Stopped/Degraded/Unknown
+- **Health Checklist** - Container, Caddy, Cloudflare, and HTTP reachability status
+- **Domain Links** - Clickable links to the live site
+- **Quick Actions** - Start, Stop, Restart, View Logs, Deploy, Pull, Delete
+
+### Provisioning Flow
+
+1. Enter site name (lowercase, alphanumeric with hyphens)
+2. Optionally specify a custom domain (defaults to `{name}.double232.com`)
+3. Choose deployment source:
+   - **Git** - Clone from repository URL
+   - **Folder** - Upload a directory
+   - **Zip** - Upload a ZIP archive
+4. System auto-detects project type and provisions accordingly
+
+If no deployment source is provided, a "Coming Soon" landing page is served.
+
+## Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `HETZNER_HOST` | Server IP address | Required |
+| `HETZNER_USER` | SSH username | `root` |
+| `HETZNER_KEY_PATH` | Path to SSH private key | Required |
+| `REMOTE_SITES_ROOT` | Sites directory on server | `/opt/sites` |
+| `REMOTE_GATEWAY_ROOT` | Gateway directory | `/opt/gateway` |
+| `REMOTE_CADDYFILE` | Caddyfile path | `/opt/gateway/Caddyfile` |
+| `CF_ACCOUNT_ID` | Cloudflare account ID | Optional |
+| `CF_API_TOKEN` | Cloudflare API token | Optional |
+| `CF_TUNNEL_ID` | Cloudflare tunnel ID | Optional |
+| `KUMA_URL` | Uptime Kuma socket URL | `http://uptime-kuma:3001` |
+| `KUMA_USERNAME` | Kuma login username | `admin` |
+| `KUMA_PASSWORD` | Kuma login password | Required for monitoring |
+| `SQLITE_DB_PATH` | Audit database path | `siteflow.db` |
+| `CACHE_TTL_SECONDS` | Site cache TTL | `20` |
+| `WS_MONITOR_INTERVAL` | WebSocket poll interval | `10.0` |
+
+## How It Works
+
+1. **Site Discovery** - Backend SSH's to server, scans `/opt/sites/*/docker-compose.yml`
+2. **Container Matching** - Correlates compose services with running Docker containers
+3. **Caddy Integration** - Uses `caddy-docker-proxy` which auto-discovers container labels
+4. **Cloudflare Sync** - Adds/removes DNS records and tunnel hostnames on provision/deprovision
+5. **Health Monitoring** - Queries Uptime Kuma via socket.io for HTTP health checks
+
+## Requirements
+
+- Docker and Docker Compose on target server
+- `caddy-docker-proxy` running on `web_proxy` network
+- Cloudflare tunnel (cloudflared) for external access
+- Uptime Kuma for health monitoring
+- SSH access to the target server
+
+## License
+
+MIT

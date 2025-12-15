@@ -29,6 +29,9 @@ services:
       - NAS_BACKUP_PATH=backups
       - NAS_STALE_THRESHOLD_HOURS=48
       - WS_MONITOR_INTERVAL=10.0
+      - KUMA_URL=${KUMA_URL}
+      - KUMA_USERNAME=${KUMA_USERNAME}
+      - KUMA_PASSWORD=${KUMA_PASSWORD}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     labels:

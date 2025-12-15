@@ -32,7 +32,7 @@ def get_audit_service() -> AuditService:
 
 @lru_cache
 def get_provision_service() -> ProvisionService:
-    return ProvisionService(get_settings(), get_audit_service())
+    return ProvisionService(get_settings(), get_audit_service(), get_cloudflare_service())
 
 
 @lru_cache
