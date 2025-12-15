@@ -1,0 +1,17 @@
+[Unit]
+Description=SiteFlow Database Backup
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/siteflow-backups/backup_db.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=siteflow-backup-db
+
+# Security hardening
+NoNewPrivileges=no
+ProtectSystem=full
+PrivateTmp=true

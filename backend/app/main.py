@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.database import init_database
-from app.routers import audit, deploy, graph, health, provision, routes, sites, ws
+from app.routers import audit, backups, deploy, graph, health, provision, routes, sites, ws
 from app.services.monitor import get_monitor
 
 
@@ -55,6 +55,7 @@ app.include_router(routes.router)
 app.include_router(deploy.router)
 app.include_router(ws.router)
 app.include_router(health.router)
+app.include_router(backups.router)
 
 
 @app.get("/api/ping")

@@ -1,0 +1,10 @@
+[Unit]
+Description=Run SiteFlow backup verification weekly
+
+[Timer]
+OnCalendar=Sun *-*-* 05:00:00
+RandomizedDelaySec=3600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

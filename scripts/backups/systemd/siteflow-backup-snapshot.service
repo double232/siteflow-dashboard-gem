@@ -1,0 +1,16 @@
+[Unit]
+Description=SiteFlow Hetzner VM Snapshot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/siteflow-backups/snapshot_weekly.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=siteflow-backup-snapshot
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=full
+PrivateTmp=true

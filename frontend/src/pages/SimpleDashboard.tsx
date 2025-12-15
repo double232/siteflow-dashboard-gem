@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-import { useAuditLogs, useContainerAction, useDeployFromGitHub, useDeprovisionSite, useFolderDeploy, useHealth, usePullLatest, useProvisionSite, useReloadCaddy, useSiteAction, useSites, useUploadDeploy } from '../api/hooks';
+import { useAuditLogs, useBackupSummary, useContainerAction, useDeployFromGitHub, useDeprovisionSite, useFolderDeploy, useHealth, usePullLatest, useProvisionSite, useReloadCaddy, useSiteAction, useSites, useUploadDeploy } from '../api/hooks';
 import { SiteCardGrid } from '../components/SiteCardGrid';
 import type { TemplateType } from '../api/types/provision';
 
@@ -23,6 +23,7 @@ export const SimpleDashboard = () => {
   const { data: siteData, isFetching: sitesLoading, refetch: refetchSites } = useSites({ useWebSocket: true });
   const { data: auditData, refetch: refetchAudit } = useAuditLogs();
   const { data: healthData } = useHealth();
+  const { data: backupData } = useBackupSummary();
   const { mutateAsync: actOnContainer } = useContainerAction();
   const { mutateAsync: actOnSite, isPending: siteActionPending } = useSiteAction();
   const { mutateAsync: provisionSite, isPending: provisionPending } = useProvisionSite();
@@ -583,6 +584,7 @@ export const SimpleDashboard = () => {
           <SiteCardGrid
             sites={siteData?.sites}
             healthData={healthData}
+            backupData={backupData}
             isLoading={sitesLoading}
             onSiteAction={handleSiteAction}
             onViewLogs={handleViewLogs}

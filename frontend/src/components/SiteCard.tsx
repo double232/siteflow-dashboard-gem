@@ -1,12 +1,15 @@
 import type { Site } from '../api/types';
 import type { MonitorStatus } from '../api/types/health';
+import type { SiteBackupStatus } from '../api/types/backups';
 import { StatusBadge } from './StatusBadge';
 import { StatusChecklist } from './StatusChecklist';
+import { BackupBadge } from './BackupBadge';
 import { QuickActions } from './QuickActions';
 
 interface Props {
   site: Site;
   healthStatus?: MonitorStatus;
+  backupStatus?: SiteBackupStatus;
   onSiteAction: (siteName: string, action: 'start' | 'stop' | 'restart') => Promise<void>;
   onViewLogs: (siteName: string) => void;
   onDeprovision: (siteName: string) => void;
@@ -18,6 +21,7 @@ interface Props {
 export const SiteCard = ({
   site,
   healthStatus,
+  backupStatus,
   onSiteAction,
   onViewLogs,
   onDeprovision,
@@ -36,6 +40,7 @@ export const SiteCard = ({
       </header>
 
       <StatusChecklist site={site} healthStatus={healthStatus} />
+      <BackupBadge backupStatus={backupStatus} />
 
       <div className="site-card__info">
         <div className="site-card__info-row">

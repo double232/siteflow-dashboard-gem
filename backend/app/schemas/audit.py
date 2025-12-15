@@ -20,6 +20,7 @@ class ActionType(str, Enum):
     SITE_DEPROVISION = "site_deprovision"
     ROUTE_ADD = "route_add"
     ROUTE_REMOVE = "route_remove"
+    BACKUP_RUN = "backup_run"
 
 
 class TargetType(str, Enum):

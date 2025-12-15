@@ -193,6 +193,81 @@ If no deployment source is provided, a "Coming Soon" landing page is served.
 4. **Cloudflare Sync** - Adds/removes DNS records and tunnel hostnames on provision/deprovision
 5. **Health Monitoring** - Queries Uptime Kuma via socket.io for HTTP health checks
 
+## Backup System
+
+SiteFlow includes a comprehensive backup system using restic for encrypted, deduplicated backups to a NAS via Tailscale.
+
+### Features
+
+- **Database Backups** - Daily mysqldump of all MariaDB/MySQL containers
+- **Uploads Backups** - Daily backup of WordPress wp-content/uploads directories
+- **30-day Retention** - Automatic pruning with keep-daily/weekly/monthly policies
+- **Verification** - Weekly integrity checks with data sampling
+- **VM Snapshots** - Optional weekly Hetzner Cloud snapshots
+- **Dashboard Integration** - Backup status displayed on site cards
+
+### Installation
+
+```bash
+# On the webserver
+cd /opt/siteflow-backups
+cp config.env.example config.env
+# Edit config.env with your NAS credentials
+./install.sh
+
+# Enable automated backups
+cp systemd/* /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now siteflow-backup-db.timer
+systemctl enable --now siteflow-backup-uploads.timer
+systemctl enable --now siteflow-backup-verify.timer
+```
+
+### Manual Operations
+
+```bash
+# Run backup manually
+/opt/siteflow-backups/backup_db.sh
+/opt/siteflow-backups/backup_uploads.sh
+
+# Verify repository
+/opt/siteflow-backups/verify_backups.sh
+
+# List snapshots
+restic -r /mnt/nas_backups/restic/webserver --password-file /root/.restic-pass snapshots
+
+# Restore (dry run first!)
+/opt/siteflow-backups/restore.sh --site myblog --timestamp latest --restore-uploads --dry-run
+/opt/siteflow-backups/restore.sh --site myblog --timestamp latest --restore-uploads --i-understand-risk
+```
+
+### Backup Schedule
+
+| Job | Schedule | Retention |
+|-----|----------|-----------|
+| Database | Daily 2:00 AM | 30 daily, 4 weekly, 6 monthly |
+| Uploads | Daily 3:30 AM | 30 daily, 4 weekly, 6 monthly |
+| Verify | Sunday 5:00 AM | N/A |
+| Snapshot | Sunday 12:00 AM | 4 weeks |
+
+### Troubleshooting
+
+```bash
+# Check timer status
+systemctl list-timers --all | grep siteflow
+
+# View logs
+journalctl -u siteflow-backup-db -f
+journalctl -u siteflow-backup-uploads -f
+
+# Check mount
+mount | grep nas_backups
+df -h /mnt/nas_backups
+
+# Manual mount if needed
+mount /mnt/nas_backups
+```
+
 ## Requirements
 
 - Docker and Docker Compose on target server
@@ -200,6 +275,8 @@ If no deployment source is provided, a "Coming Soon" landing page is served.
 - Cloudflare tunnel (cloudflared) for external access
 - Uptime Kuma for health monitoring
 - SSH access to the target server
+- NAS with SMB share (for backups)
+- Tailscale for secure NAS connectivity
 
 ## License
 

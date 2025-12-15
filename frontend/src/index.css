@@ -1153,6 +1153,55 @@ main {
   white-space: nowrap;
 }
 
+/* Backup Badge */
+.backup-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  background: var(--bg-checklist);
+  border: 1px solid var(--border-default);
+  margin-top: 0.5rem;
+}
+
+.backup-badge__icon {
+  font-weight: bold;
+  font-family: monospace;
+}
+
+.backup-badge__label {
+  font-weight: 500;
+}
+
+.backup-badge__ages {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.backup-badge__age {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.backup-badge--ok .backup-badge__icon {
+  color: #22c55e;
+}
+
+.backup-badge--warn .backup-badge__icon {
+  color: #facc15;
+}
+
+.backup-badge--fail .backup-badge__icon {
+  color: #ef4444;
+}
+
+.backup-badge--unknown .backup-badge__icon {
+  color: #94a3b8;
+}
+
 /* Site Card Info */
 .site-card__info {
   display: flex;

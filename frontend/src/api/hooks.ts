@@ -22,6 +22,13 @@ import type {
 } from './types/deploy';
 import type { HealthResponse } from './types/health';
 import type { RouteRequest, RouteResponse, RoutesListResponse } from './types';
+import type {
+  BackupRunsResponse,
+  BackupSummaryResponse,
+  RestorePointsResponse,
+  BackupConfigResponse,
+  JobType,
+} from './types/backups';
 
 interface UseQueryOptions {
   useWebSocket?: boolean;
@@ -333,4 +340,51 @@ export const useHealth = () =>
     },
     refetchInterval: 30000, // Refresh every 30 seconds
     staleTime: 15000,
+  });
+
+// Backup hooks
+export const useBackupSummary = () =>
+  useQuery<BackupSummaryResponse>({
+    queryKey: ['backup-summary'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<BackupSummaryResponse>('/api/backups/summary');
+      return data;
+    },
+    refetchInterval: 60000, // Refresh every minute
+    staleTime: 30000,
+  });
+
+export const useBackupRuns = (filters?: { site?: string; job_type?: JobType; limit?: number; offset?: number }) =>
+  useQuery<BackupRunsResponse>({
+    queryKey: ['backup-runs', filters],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters?.site) params.append('site', filters.site);
+      if (filters?.job_type) params.append('job_type', filters.job_type);
+      if (filters?.limit) params.append('limit', String(filters.limit));
+      if (filters?.offset) params.append('offset', String(filters.offset));
+      const { data } = await apiClient.get<BackupRunsResponse>(`/api/backups/runs?${params}`);
+      return data;
+    },
+    refetchInterval: 60000,
+  });
+
+export const useRestorePoints = (site: string) =>
+  useQuery<RestorePointsResponse>({
+    queryKey: ['restore-points', site],
+    queryFn: async () => {
+      const { data } = await apiClient.get<RestorePointsResponse>(`/api/backups/restore-points?site=${site}`);
+      return data;
+    },
+    enabled: !!site,
+  });
+
+export const useBackupConfig = () =>
+  useQuery<BackupConfigResponse>({
+    queryKey: ['backup-config'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<BackupConfigResponse>('/api/backups/config');
+      return data;
+    },
+    staleTime: 300000, // 5 minutes
   });

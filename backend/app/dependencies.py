@@ -2,6 +2,7 @@ from functools import lru_cache
 
 from app.config import get_settings
 from app.services.audit import AuditService
+from app.services.backups import BackupService
 from app.services.cloudflare import CloudflareService
 from app.services.graph_builder import GraphBuilder
 from app.services.hetzner import HetznerService
@@ -43,3 +44,8 @@ def get_metrics_service() -> MetricsService:
 @lru_cache
 def get_nas_service() -> NASService:
     return NASService(get_settings())
+
+
+@lru_cache
+def get_backup_service() -> BackupService:
+    return BackupService(get_settings().sqlite_db_path)

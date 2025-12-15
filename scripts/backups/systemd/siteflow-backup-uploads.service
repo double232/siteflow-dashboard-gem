@@ -1,0 +1,17 @@
+[Unit]
+Description=SiteFlow Uploads Backup
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/siteflow-backups/backup_uploads.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=siteflow-backup-uploads
+
+# Security hardening
+NoNewPrivileges=no
+ProtectSystem=full
+PrivateTmp=true

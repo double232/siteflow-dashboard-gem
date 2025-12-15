@@ -1,0 +1,16 @@
+[Unit]
+Description=SiteFlow Backup Verification
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/siteflow-backups/verify_backups.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=siteflow-backup-verify
+
+# Security hardening
+NoNewPrivileges=no
+ProtectSystem=full
+PrivateTmp=true
