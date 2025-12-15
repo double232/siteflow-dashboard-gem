@@ -268,6 +268,72 @@ df -h /mnt/nas_backups
 mount /mnt/nas_backups
 ```
 
+## Security
+
+### Input Validation
+
+All user inputs are validated before being used in shell commands:
+- **Site names**: Lowercase alphanumeric with hyphens (1-63 chars)
+- **Domains**: Valid hostname format, no path components
+- **Branch names**: Alphanumeric with hyphens, underscores, dots, slashes
+- **Git URLs**: HTTPS only, restricted to github.com, gitlab.com, bitbucket.org
+
+Shell arguments are escaped using `shlex.quote` to prevent command injection.
+
+### SSH Host Key Verification
+
+SSH connections verify host keys against `~/.ssh/known_hosts`. Add your server's host key:
+
+```bash
+ssh-keyscan -H your-server-ip >> ~/.ssh/known_hosts
+```
+
+Or specify a custom known_hosts file via `SSH_KNOWN_HOSTS` environment variable.
+
+### CORS Configuration
+
+CORS is restricted by default. Set `CORS_ALLOWED_ORIGINS` in production:
+
+```env
+CORS_ALLOWED_ORIGINS=https://dashboard.yourdomain.com
+```
+
+### Authentication with OAuth2 Proxy (Recommended)
+
+For production, use OAuth2 Proxy to require Google authentication:
+
+1. Create a Google OAuth2 application at [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+   - Authorized redirect URI: `https://dashboard.yourdomain.com/oauth2/callback`
+
+2. Configure environment variables:
+   ```env
+   OAUTH2_CLIENT_ID=your-google-client-id
+   OAUTH2_CLIENT_SECRET=your-google-client-secret
+   OAUTH2_COOKIE_SECRET=$(openssl rand -base64 32)
+   DASHBOARD_DOMAIN=dashboard.yourdomain.com
+   ```
+
+3. Create allowed emails file:
+   ```bash
+   mkdir -p auth
+   echo "admin@yourdomain.com" > auth/allowed-emails.txt
+   ```
+
+4. Deploy with auth:
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.auth.yml up -d
+   ```
+
+### Security Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CORS_ALLOWED_ORIGINS` | Comma-separated allowed origins | `http://localhost:5173,http://localhost:3000` |
+| `SSH_KNOWN_HOSTS` | Path to known_hosts file | `~/.ssh/known_hosts` |
+| `OAUTH2_CLIENT_ID` | Google OAuth2 client ID | Required for auth |
+| `OAUTH2_CLIENT_SECRET` | Google OAuth2 client secret | Required for auth |
+| `OAUTH2_COOKIE_SECRET` | Random 32-byte cookie secret | Required for auth |
+
 ## Requirements
 
 - Docker and Docker Compose on target server
