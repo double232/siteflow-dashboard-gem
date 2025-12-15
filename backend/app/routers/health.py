@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from typing import Any
 
@@ -9,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/health", tags=["health"])
 
 # Uptime Kuma config
@@ -49,12 +51,7 @@ async def get_kuma_status() -> dict[str, MonitorStatus]:
     heartbeats: dict[int, Any] = {}
     monitor_list: list[dict] = []
 
-    connected = asyncio.Event()
     data_received = asyncio.Event()
-
-    @sio.on("connect")
-    async def on_connect():
-        connected.set()
 
     @sio.on("heartbeatList")
     async def on_heartbeat_list(monitor_id: int, data: list, *args):
@@ -65,13 +62,15 @@ async def get_kuma_status() -> dict[str, MonitorStatus]:
     async def on_monitor_list(data: dict):
         nonlocal monitor_list
         monitor_list = list(data.values())
+        logger.info(f"Received {len(monitor_list)} monitors from Kuma")
         data_received.set()
 
     try:
+        logger.info(f"Connecting to Kuma at {KUMA_URL}")
         await asyncio.wait_for(sio.connect(KUMA_URL), timeout=5)
-        await asyncio.wait_for(connected.wait(), timeout=5)
 
         # Login
+        logger.info(f"Logging in as {KUMA_USERNAME}")
         result = await sio.call(
             "login",
             {"username": KUMA_USERNAME, "password": KUMA_PASSWORD, "token": ""},
@@ -79,10 +78,23 @@ async def get_kuma_status() -> dict[str, MonitorStatus]:
         )
 
         if not result.get("ok"):
+            logger.error(f"Login failed: {result.get('msg', 'Unknown error')}")
             return monitors
 
-        # Wait for monitor list
-        await asyncio.wait_for(data_received.wait(), timeout=10)
+        logger.info("Login successful, waiting for monitor list...")
+
+        # Wait for monitor list (sent automatically after login)
+        try:
+            await asyncio.wait_for(data_received.wait(), timeout=5)
+        except asyncio.TimeoutError:
+            logger.warning("Timeout waiting for monitorList, retrying...")
+            # Give it a bit more time
+            await asyncio.sleep(1)
+
+        # Small delay to receive heartbeat data
+        await asyncio.sleep(0.5)
+
+        logger.info(f"Building response from {len(monitor_list)} monitors, {len(heartbeats)} heartbeats")
 
         # Build response
         for monitor in monitor_list:
@@ -95,8 +107,8 @@ async def get_kuma_status() -> dict[str, MonitorStatus]:
 
             monitors[name] = MonitorStatus(up=status == 1, ping=ping)
 
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Error fetching Kuma status: {type(e).__name__}: {e}")
     finally:
         if sio.connected:
             await sio.disconnect()
