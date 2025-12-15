@@ -19,9 +19,17 @@ KUMA_USERNAME = os.getenv("KUMA_USERNAME", "admin")
 KUMA_PASSWORD = os.getenv("KUMA_PASSWORD", "")
 
 
+class HeartbeatEntry(BaseModel):
+    status: int  # 0=down, 1=up, 2=pending
+    time: str
+    ping: int | None = None
+
+
 class MonitorStatus(BaseModel):
     up: bool
     ping: int | None = None
+    uptime: float = 0.0  # Percentage 0-100
+    heartbeats: list[HeartbeatEntry] = []  # Last N heartbeats for visualization
 
 
 class HealthResponse(BaseModel):
@@ -48,7 +56,7 @@ async def get_kuma_status() -> dict[str, MonitorStatus]:
     """Fetch monitor status from Uptime Kuma via socket.io."""
     sio = socketio.AsyncClient()
     monitors: dict[str, MonitorStatus] = {}
-    heartbeats: dict[int, Any] = {}
+    heartbeats: dict[str, list] = {}  # Store full heartbeat history
     monitor_list: list[dict] = []
 
     data_received = asyncio.Event()
@@ -56,8 +64,8 @@ async def get_kuma_status() -> dict[str, MonitorStatus]:
     @sio.on("heartbeatList")
     async def on_heartbeat_list(monitor_id, data: list, *args):
         if data:
-            # Keys come as strings from socket.io
-            heartbeats[str(monitor_id)] = data[-1]
+            # Store all heartbeats (Kuma sends last ~50)
+            heartbeats[str(monitor_id)] = data
 
     @sio.on("monitorList")
     async def on_monitor_list(data: dict):
@@ -100,12 +108,36 @@ async def get_kuma_status() -> dict[str, MonitorStatus]:
         for monitor in monitor_list:
             name = monitor.get("name", "")
             monitor_id = str(monitor.get("id"))
-            hb = heartbeats.get(monitor_id, {})
+            hb_list = heartbeats.get(monitor_id, [])
 
-            status = hb.get("status", 0) if hb else 0
-            ping = hb.get("ping") if hb else None
+            # Get latest heartbeat for current status
+            latest_hb = hb_list[-1] if hb_list else {}
+            status = latest_hb.get("status", 0) if latest_hb else 0
+            ping = latest_hb.get("ping") if latest_hb else None
 
-            monitors[name] = MonitorStatus(up=status == 1, ping=ping)
+            # Calculate uptime percentage from heartbeat history
+            if hb_list:
+                up_count = sum(1 for hb in hb_list if hb.get("status") == 1)
+                uptime = (up_count / len(hb_list)) * 100
+            else:
+                uptime = 0.0
+
+            # Convert heartbeats to our format (last 30 for display)
+            heartbeat_entries = [
+                HeartbeatEntry(
+                    status=hb.get("status", 0),
+                    time=hb.get("time", ""),
+                    ping=hb.get("ping"),
+                )
+                for hb in hb_list[-30:]  # Last 30 heartbeats
+            ]
+
+            monitors[name] = MonitorStatus(
+                up=status == 1,
+                ping=ping,
+                uptime=round(uptime, 1),
+                heartbeats=heartbeat_entries,
+            )
 
     except Exception as e:
         logger.error(f"Error fetching Kuma status: {type(e).__name__}: {e}")

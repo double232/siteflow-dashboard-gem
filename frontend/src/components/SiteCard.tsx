@@ -5,6 +5,7 @@ import { StatusBadge } from './StatusBadge';
 import { StatusChecklist } from './StatusChecklist';
 import { BackupBadge } from './BackupBadge';
 import { QuickActions } from './QuickActions';
+import { UptimeLine } from './UptimeLine';
 
 interface Props {
   site: Site;
@@ -38,6 +39,8 @@ export const SiteCard = ({
         <h3 className="site-card__name">{site.name}</h3>
         <StatusBadge status={site.status} />
       </header>
+
+      <UptimeLine monitor={healthStatus} />
 
       <StatusChecklist site={site} healthStatus={healthStatus} />
       <BackupBadge backupStatus={backupStatus} />
