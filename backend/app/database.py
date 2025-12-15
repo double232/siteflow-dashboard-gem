@@ -22,6 +22,7 @@ class AuditLog(Base):
     target_type = Column(String(50), nullable=False, index=True)
     target_name = Column(String(255), nullable=False, index=True)
     status = Column(String(20), nullable=False, index=True)
+    user_email = Column(String(255), nullable=True, index=True)
     output = Column(Text, nullable=True)
     error_message = Column(Text, nullable=True)
     metadata_json = Column(Text, nullable=True)
@@ -43,6 +44,7 @@ class AuditLog(Base):
             "target_type": self.target_type,
             "target_name": self.target_name,
             "status": self.status,
+            "user_email": self.user_email,
             "output": self.output,
             "error_message": self.error_message,
             "metadata": self.get_metadata(),

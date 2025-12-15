@@ -44,6 +44,7 @@ class AuditLogEntry(BaseModel):
     target_type: str
     target_name: str
     status: str
+    user_email: str | None = None
     output: str | None = None
     error_message: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)

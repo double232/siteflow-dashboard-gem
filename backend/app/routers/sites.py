@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 import time
 
-from fastapi import APIRouter, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
-from app.dependencies import get_audit_service, get_hetzner_service
+from app.dependencies import get_audit_service, get_hetzner_service, get_current_user_email
 from app.schemas.audit import ActionStatus, ActionType, TargetType
 from app.schemas.site import SitesResponse
 from app.validators import (
@@ -31,6 +31,7 @@ async def list_sites(refresh: bool = Query(False, description="Force refresh fro
 async def container_action(
     container: str = Path(..., description="Docker container name"),
     action: str = Path(..., description="start|stop|restart|logs"),
+    user_email: str | None = Depends(get_current_user_email),
 ):
     # Validate container name
     try:
@@ -62,6 +63,7 @@ async def container_action(
             target_type=TargetType.CONTAINER,
             target_name=validated_container,
             status=ActionStatus.SUCCESS,
+            user_email=user_email,
             output=output,
             duration_ms=duration_ms,
         )
@@ -72,6 +74,7 @@ async def container_action(
             target_type=TargetType.CONTAINER,
             target_name=validated_container,
             status=ActionStatus.FAILURE,
+            user_email=user_email,
             error_message=str(exc),
             duration_ms=duration_ms,
         )
@@ -83,6 +86,7 @@ async def container_action(
             target_type=TargetType.CONTAINER,
             target_name=validated_container,
             status=ActionStatus.FAILURE,
+            user_email=user_email,
             error_message=str(exc),
             duration_ms=duration_ms,
         )
@@ -94,6 +98,7 @@ async def container_action(
 async def site_action(
     site_name: str = Path(..., description="Site directory name"),
     action: str = Path(..., description="start|stop|restart"),
+    user_email: str | None = Depends(get_current_user_email),
 ):
     """Start/stop/restart a site using docker-compose."""
     # Validate site name
@@ -124,6 +129,7 @@ async def site_action(
             target_type=TargetType.SITE,
             target_name=validated_site,
             status=ActionStatus.SUCCESS,
+            user_email=user_email,
             output=output,
             duration_ms=duration_ms,
         )
@@ -134,6 +140,7 @@ async def site_action(
             target_type=TargetType.SITE,
             target_name=validated_site,
             status=ActionStatus.FAILURE,
+            user_email=user_email,
             error_message=str(exc),
             duration_ms=duration_ms,
         )
@@ -145,6 +152,7 @@ async def site_action(
             target_type=TargetType.SITE,
             target_name=validated_site,
             status=ActionStatus.FAILURE,
+            user_email=user_email,
             error_message=str(exc),
             duration_ms=duration_ms,
         )
@@ -153,7 +161,7 @@ async def site_action(
 
 
 @router.post("/caddy/reload")
-async def reload_caddy():
+async def reload_caddy(user_email: str | None = Depends(get_current_user_email)):
     service = get_hetzner_service()
     audit = get_audit_service()
 
@@ -168,6 +176,7 @@ async def reload_caddy():
             target_type=TargetType.CADDY,
             target_name="caddy",
             status=status,
+            user_email=user_email,
             output=output,
             duration_ms=duration_ms,
         )
@@ -178,6 +187,7 @@ async def reload_caddy():
             target_type=TargetType.CADDY,
             target_name="caddy",
             status=ActionStatus.FAILURE,
+            user_email=user_email,
             error_message=str(exc),
             duration_ms=duration_ms,
         )
@@ -189,6 +199,7 @@ async def reload_caddy():
 async def set_site_env(
     site: str = Path(..., description="Site name"),
     domain: str = Query(..., description="Domain for the site"),
+    user_email: str | None = Depends(get_current_user_email),
 ):
     """Set the DOMAIN environment variable for a site."""
     # Validate inputs
@@ -231,6 +242,7 @@ async def set_site_env(
             target_type=TargetType.SITE,
             target_name=validated_site,
             status=ActionStatus.SUCCESS,
+            user_email=user_email,
             output=f"Set DOMAIN={validated_domain}",
             duration_ms=duration_ms,
         )
@@ -243,6 +255,7 @@ async def set_site_env(
             target_type=TargetType.SITE,
             target_name=validated_site,
             status=ActionStatus.FAILURE,
+            user_email=user_email,
             error_message=str(exc),
             duration_ms=duration_ms,
         )

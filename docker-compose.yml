@@ -6,32 +6,47 @@ services:
     volumes:
       - ./data:/app/data
       - /root/.ssh/id_ed25519:/root/.ssh/id_ed25519:ro
+      - /root/.ssh/known_hosts:/root/.ssh/known_hosts:ro
     environment:
+      # SSH Configuration
       - HETZNER_HOST=host.docker.internal
       - HETZNER_USER=root
+      - HETZNER_PORT=22
       - HETZNER_KEY_PATH=/root/.ssh/id_ed25519
+      - SSH_KNOWN_HOSTS=/root/.ssh/known_hosts
+      - SSH_TIMEOUT=30
+      # Remote Paths
       - REMOTE_SITES_ROOT=/opt/sites
       - REMOTE_GATEWAY_ROOT=/opt/gateway
       - REMOTE_CADDYFILE=/opt/gateway/Caddyfile
       - REMOTE_DATA_ROOT=/opt/data
+      # Cloudflare
       - CF_ACCOUNT_ID=${CF_ACCOUNT_ID}
       - CF_API_TOKEN=${CF_API_TOKEN}
       - CF_TUNNEL_ID=${CF_TUNNEL_ID}
+      # Caching & Logging
       - CACHE_TTL_SECONDS=20
       - LOG_SSH_COMMANDS=false
+      # Database
       - SQLITE_DB_PATH=/app/data/siteflow.db
       - AUDIT_RETENTION_DAYS=90
       - AUDIT_MAX_OUTPUT_LENGTH=10000
+      # NAS Backup Monitoring
       - NAS_HOST=${NAS_HOST}
       - NAS_USER=${NAS_USER}
       - NAS_PASSWORD=${NAS_PASSWORD}
       - NAS_SHARE=volume1
       - NAS_BACKUP_PATH=backups
       - NAS_STALE_THRESHOLD_HOURS=48
+      - NAS_POLL_INTERVAL_SECONDS=300
+      # WebSocket
       - WS_MONITOR_INTERVAL=10.0
+      # Uptime Kuma
       - KUMA_URL=${KUMA_URL}
       - KUMA_USERNAME=${KUMA_USERNAME}
       - KUMA_PASSWORD=${KUMA_PASSWORD}
+      # CORS - Set to your dashboard domain in production
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-https://dashboard.double232.com}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     labels:
