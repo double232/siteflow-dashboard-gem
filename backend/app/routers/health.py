@@ -54,9 +54,10 @@ async def get_kuma_status() -> dict[str, MonitorStatus]:
     data_received = asyncio.Event()
 
     @sio.on("heartbeatList")
-    async def on_heartbeat_list(monitor_id: int, data: list, *args):
+    async def on_heartbeat_list(monitor_id, data: list, *args):
         if data:
-            heartbeats[monitor_id] = data[-1]
+            # Keys come as strings from socket.io
+            heartbeats[str(monitor_id)] = data[-1]
 
     @sio.on("monitorList")
     async def on_monitor_list(data: dict):
@@ -98,7 +99,7 @@ async def get_kuma_status() -> dict[str, MonitorStatus]:
         # Build response
         for monitor in monitor_list:
             name = monitor.get("name", "")
-            monitor_id = monitor.get("id")
+            monitor_id = str(monitor.get("id"))
             hb = heartbeats.get(monitor_id, {})
 
             status = hb.get("status", 0) if hb else 0
