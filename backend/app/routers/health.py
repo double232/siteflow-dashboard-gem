@@ -87,12 +87,11 @@ async def get_kuma_status() -> dict[str, MonitorStatus]:
         try:
             await asyncio.wait_for(data_received.wait(), timeout=5)
         except asyncio.TimeoutError:
-            logger.warning("Timeout waiting for monitorList, retrying...")
             # Give it a bit more time
             await asyncio.sleep(1)
 
-        # Small delay to receive heartbeat data
-        await asyncio.sleep(0.5)
+        # Wait for heartbeat data to arrive
+        await asyncio.sleep(2)
 
         logger.info(f"Building response from {len(monitor_list)} monitors, {len(heartbeats)} heartbeats")
 
