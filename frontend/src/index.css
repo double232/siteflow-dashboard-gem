@@ -1033,6 +1033,7 @@ main {
   margin-top: 0.5rem;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 .dashboard-layout__cards {
