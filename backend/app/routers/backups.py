@@ -99,12 +99,29 @@ async def get_backup_summary():
     Get backup status summary for all sites.
 
     Returns per-site status including last run times, RPO, and overall health.
+    Shows all sites from the server, not just those with backup records.
     """
-    service = get_backup_service()
+    from app.dependencies import get_hetzner_service
 
-    sites = service.get_all_sites()
+    service = get_backup_service()
+    hetzner = get_hetzner_service()
+
+    # Get sites from backup records
+    sites_with_backups = set(service.get_all_sites())
+
+    # Get all sites from server
+    all_server_sites: set[str] = set()
+    try:
+        sites_data = hetzner.get_sites()
+        all_server_sites = {site.name for site in sites_data}
+    except Exception as e:
+        logger.warning(f"Could not fetch sites from server: {e}")
+
+    # Merge both sets - all sites should appear in backup summary
+    all_sites = sorted(sites_with_backups | all_server_sites)
+
     site_statuses = [
-        service.compute_site_status(site, DEFAULT_THRESHOLDS) for site in sites
+        service.compute_site_status(site, DEFAULT_THRESHOLDS) for site in all_sites
     ]
 
     return BackupSummaryResponse(sites=site_statuses, thresholds=DEFAULT_THRESHOLDS)
