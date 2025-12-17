@@ -55,11 +55,11 @@ class HetznerService:
         site_path = f"{self.settings.remote_sites_root}/{site_name}"
 
         if action == "start":
-            cmd = f"cd {site_path} && docker compose up -d"
+            cmd = f"cd {site_path} && docker compose up -d --no-build"
         elif action == "stop":
             cmd = f"cd {site_path} && docker compose down"
         elif action == "restart":
-            cmd = f"cd {site_path} && docker compose down && docker compose up -d"
+            cmd = f"cd {site_path} && docker compose down && docker compose up -d --no-build"
         else:
             raise ValueError(f"Unknown action: {action}")
 
