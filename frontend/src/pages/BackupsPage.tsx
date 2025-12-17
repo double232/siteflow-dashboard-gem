@@ -124,32 +124,73 @@ export const BackupsPage = () => {
     }
   };
 
+  const [backingUpAll, setBackingUpAll] = useState(false);
+
   const handleBackupAllSites = async () => {
+    if (!backupSummary?.sites.length) {
+      addToHistory({
+        title: 'Backup: All Sites',
+        output: 'No sites to backup',
+        isError: true,
+        timestamp: new Date(),
+      });
+      return;
+    }
+
+    setBackingUpAll(true);
+    const sites = backupSummary.sites.map(s => s.site);
+    let successCount = 0;
+    let failCount = 0;
+
     addToHistory({
       title: 'Backup: All Sites',
-      output: 'Starting backup of all sites...',
+      output: `Starting backup of ${sites.length} sites...`,
       isError: false,
       timestamp: new Date(),
     });
 
-    try {
-      const result = await backupAllSites.mutateAsync();
+    for (const site of sites) {
       addToHistory({
-        title: 'Backup: All Sites',
-        output: result.output,
-        isError: result.status === 'error',
+        title: `Backup: ${site}`,
+        output: 'Starting backup...',
+        isError: false,
         timestamp: new Date(),
       });
-      refetchSummary();
-      refetchSnapshots();
-    } catch (e) {
-      addToHistory({
-        title: 'Backup: All Sites',
-        output: e instanceof Error ? e.message : 'Backup failed',
-        isError: true,
-        timestamp: new Date(),
-      });
+
+      try {
+        const result = await backupSite.mutateAsync(site);
+        addToHistory({
+          title: `Backup: ${site}`,
+          output: result.output,
+          isError: result.status === 'error',
+          timestamp: new Date(),
+        });
+        if (result.status === 'error') {
+          failCount++;
+        } else {
+          successCount++;
+        }
+      } catch (e) {
+        failCount++;
+        addToHistory({
+          title: `Backup: ${site}`,
+          output: e instanceof Error ? e.message : 'Backup failed',
+          isError: true,
+          timestamp: new Date(),
+        });
+      }
     }
+
+    addToHistory({
+      title: 'Backup: All Sites',
+      output: `Completed: ${successCount} succeeded, ${failCount} failed`,
+      isError: failCount > 0,
+      timestamp: new Date(),
+    });
+
+    setBackingUpAll(false);
+    refetchSummary();
+    refetchSnapshots();
   };
 
   const handleBackupSystem = async () => {
@@ -252,7 +293,7 @@ export const BackupsPage = () => {
     }
   };
 
-  const isAnyPending = backupSite.isPending || backupAllSites.isPending ||
+  const isAnyPending = backupSite.isPending || backupAllSites.isPending || backingUpAll ||
     backupSystem.isPending || restoreSite.isPending || restoreSystem.isPending;
 
   return (
@@ -305,7 +346,7 @@ export const BackupsPage = () => {
             onClick={handleBackupAllSites}
             disabled={isAnyPending}
           >
-            {backupAllSites.isPending ? 'Backing up...' : 'Backup All Sites'}
+            {backingUpAll ? 'Backing up...' : 'Backup All Sites'}
           </button>
         </div>
       </section>
