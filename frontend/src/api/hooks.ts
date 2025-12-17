@@ -23,11 +23,14 @@ import type {
 import type { HealthResponse } from './types/health';
 import type { RouteRequest, RouteResponse, RoutesListResponse } from './types';
 import type {
+  BackupActionResponse,
   BackupRunsResponse,
   BackupSummaryResponse,
   RestorePointsResponse,
   BackupConfigResponse,
   JobType,
+  SnapshotsResponse,
+  SystemBackupStatus,
 } from './types/backups';
 
 interface UseQueryOptions {
@@ -387,4 +390,119 @@ export const useBackupConfig = () =>
       return data;
     },
     staleTime: 300000, // 5 minutes
+  });
+
+// Backup action hooks
+export const useBackupSite = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (site: string) => {
+      const { data } = await apiClient.post<BackupActionResponse>(
+        `/api/backups/site/${site}/backup`,
+        {},
+        { timeout: 600000 } // 10 min timeout
+      );
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['backup-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['backup-runs'] });
+      queryClient.invalidateQueries({ queryKey: ['snapshots'] });
+    },
+  });
+};
+
+export const useRestoreSite = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ site, snapshotId }: { site: string; snapshotId: string }) => {
+      const { data } = await apiClient.post<BackupActionResponse>(
+        `/api/backups/site/${site}/restore`,
+        { snapshot_id: snapshotId, confirm: true },
+        { timeout: 600000 } // 10 min timeout
+      );
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sites'] });
+    },
+  });
+};
+
+export const useBackupAllSites = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const { data } = await apiClient.post<BackupActionResponse>(
+        '/api/backups/all/backup',
+        {},
+        { timeout: 1800000 } // 30 min timeout
+      );
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['backup-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['backup-runs'] });
+      queryClient.invalidateQueries({ queryKey: ['snapshots'] });
+    },
+  });
+};
+
+export const useBackupSystem = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const { data } = await apiClient.post<BackupActionResponse>(
+        '/api/backups/system/backup',
+        {},
+        { timeout: 3600000 } // 60 min timeout
+      );
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['backup-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['backup-runs'] });
+      queryClient.invalidateQueries({ queryKey: ['snapshots'] });
+      queryClient.invalidateQueries({ queryKey: ['system-backup-status'] });
+    },
+  });
+};
+
+export const useRestoreSystem = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (snapshotId: string) => {
+      const { data } = await apiClient.post<BackupActionResponse>(
+        '/api/backups/system/restore',
+        { snapshot_id: snapshotId, confirm: true },
+        { timeout: 3600000 } // 60 min timeout
+      );
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sites'] });
+    },
+  });
+};
+
+export const useSnapshots = (site?: string) =>
+  useQuery<SnapshotsResponse>({
+    queryKey: ['snapshots', site],
+    queryFn: async () => {
+      const url = site ? `/api/backups/snapshots/${site}` : '/api/backups/snapshots';
+      const { data } = await apiClient.get<SnapshotsResponse>(url);
+      return data;
+    },
+    staleTime: 60000,
+  });
+
+export const useSystemBackupStatus = () =>
+  useQuery<SystemBackupStatus>({
+    queryKey: ['system-backup-status'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<SystemBackupStatus>('/api/backups/system/status');
+      return data;
+    },
+    refetchInterval: 60000,
+    staleTime: 30000,
   });

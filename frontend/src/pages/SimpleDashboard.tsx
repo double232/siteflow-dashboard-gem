@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react';
 
 import { useAuditLogs, useBackupSummary, useContainerAction, useDeployFromGitHub, useDeprovisionSite, useFolderDeploy, useHealth, usePullLatest, useProvisionSite, useReloadCaddy, useSiteAction, useSites, useUploadDeploy } from '../api/hooks';
 import { SiteCardGrid } from '../components/SiteCardGrid';
+import { BackupsPage } from './BackupsPage';
 import type { TemplateType } from '../api/types/provision';
 
 type Theme = 'light' | 'dark';
+type Tab = 'sites' | 'backups';
 
 const getInitialTheme = (): Theme => {
   const stored = localStorage.getItem('theme') as Theme | null;
@@ -114,7 +116,7 @@ export const SimpleDashboard = () => {
     try {
       const response = await deprovisionSite({ name: siteName, remove_volumes: true, remove_files: true });
       addToHistory({
-        title: `${siteName}: deprovision`,
+        title: `${siteName}: delete`,
         output: response.message || 'Site removed',
         isError: false,
         timestamp: new Date(),
@@ -122,8 +124,8 @@ export const SimpleDashboard = () => {
       refetchSites();
     } catch (e) {
       addToHistory({
-        title: `${siteName}: deprovision`,
-        output: e instanceof Error ? e.message : 'Failed to deprovision',
+        title: `${siteName}: delete`,
+        output: e instanceof Error ? e.message : 'Failed to delete site',
         isError: true,
         timestamp: new Date(),
       });
@@ -394,6 +396,7 @@ export const SimpleDashboard = () => {
   };
 
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
+  const [activeTab, setActiveTab] = useState<Tab>('sites');
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -408,13 +411,31 @@ export const SimpleDashboard = () => {
     <div className="simple-dashboard">
       <header className="dashboard__header">
         <h1>SiteFlow Dashboard</h1>
-        <div className="header-controls">
-          <button onClick={() => setShowProvision(!showProvision)}>
-            {showProvision ? 'Cancel' : 'New Site'}
+        <nav className="header-tabs">
+          <button
+            className={`tab-btn ${activeTab === 'sites' ? 'tab-btn--active' : ''}`}
+            onClick={() => setActiveTab('sites')}
+          >
+            Sites
           </button>
-          <button onClick={handleShowAudit}>Audit</button>
-          <button onClick={() => refetchSites()} disabled={sitesLoading}>Refresh</button>
-          <button onClick={handleReloadCaddy} disabled={reloadCaddy.isPending}>Reload Caddy</button>
+          <button
+            className={`tab-btn ${activeTab === 'backups' ? 'tab-btn--active' : ''}`}
+            onClick={() => setActiveTab('backups')}
+          >
+            Backups
+          </button>
+        </nav>
+        <div className="header-controls">
+          {activeTab === 'sites' && (
+            <>
+              <button onClick={() => setShowProvision(!showProvision)}>
+                {showProvision ? 'Cancel' : 'New Site'}
+              </button>
+              <button onClick={handleShowAudit}>Audit</button>
+              <button onClick={() => refetchSites()} disabled={sitesLoading}>Refresh</button>
+              <button onClick={handleReloadCaddy} disabled={reloadCaddy.isPending}>Reload Caddy</button>
+            </>
+          )}
           <button onClick={toggleTheme} className="theme-toggle">
             {theme === 'light' ? 'Dark' : 'Light'}
           </button>
@@ -512,7 +533,7 @@ export const SimpleDashboard = () => {
         </form>
       )}
 
-      {deploySite && (
+      {activeTab === 'sites' && deploySite && (
         <div className="deploy-bar">
           <span className="deploy-bar__label">Deploy to {deploySite}:</span>
           <div className="deploy-bar__mode">
@@ -579,53 +600,57 @@ export const SimpleDashboard = () => {
         </div>
       )}
 
-      <div className="dashboard-layout">
-        <main className="dashboard-layout__cards">
-          <SiteCardGrid
-            sites={siteData?.sites}
-            healthData={healthData}
-            backupData={backupData}
-            isLoading={sitesLoading}
-            onSiteAction={handleSiteAction}
-            onViewLogs={handleViewLogs}
-            onDeprovision={handleDeprovision}
-            onDeploy={(siteName) => setDeploySite(siteName)}
-            onPull={handlePull}
-            isActionPending={siteActionPending || deployPending || pullPending || uploadPending || folderPending}
-          />
-        </main>
+      {activeTab === 'sites' ? (
+        <div className="dashboard-layout">
+          <main className="dashboard-layout__cards">
+            <SiteCardGrid
+              sites={siteData?.sites}
+              healthData={healthData}
+              backupData={backupData}
+              isLoading={sitesLoading}
+              onSiteAction={handleSiteAction}
+              onViewLogs={handleViewLogs}
+              onDeprovision={handleDeprovision}
+              onDeploy={(siteName) => setDeploySite(siteName)}
+              onPull={handlePull}
+              isActionPending={siteActionPending || deployPending || pullPending || uploadPending || folderPending}
+            />
+          </main>
 
-        <aside className="dashboard-layout__console">
-          <div className="console-output">
-            <div className="console-output__header">
-              <span className="console-output__title">Console Output</span>
-              {commandHistory.length > 0 && (
-                <button className="console-output__clear" onClick={() => setCommandHistory([])}>Clear</button>
-              )}
-            </div>
-            <div className="console-output__content">
-              {commandHistory.length === 0 ? (
-                <p className="console-output__placeholder">Command output will appear here</p>
-              ) : (
-                commandHistory.map((result, index) => (
-                  <div
-                    key={`${result.timestamp.getTime()}-${index}`}
-                    className={`console-output__entry ${result.isError ? 'console-output__entry--error' : 'console-output__entry--success'}`}
-                  >
-                    <div className="console-output__entry-header">
-                      <span className="console-output__entry-title">{result.title}</span>
-                      <span className="console-output__entry-time">
-                        {result.timestamp.toLocaleTimeString()}
-                      </span>
+          <aside className="dashboard-layout__console">
+            <div className="console-output">
+              <div className="console-output__header">
+                <span className="console-output__title">Console Output</span>
+                {commandHistory.length > 0 && (
+                  <button className="console-output__clear" onClick={() => setCommandHistory([])}>Clear</button>
+                )}
+              </div>
+              <div className="console-output__content">
+                {commandHistory.length === 0 ? (
+                  <p className="console-output__placeholder">Command output will appear here</p>
+                ) : (
+                  commandHistory.map((result, index) => (
+                    <div
+                      key={`${result.timestamp.getTime()}-${index}`}
+                      className={`console-output__entry ${result.isError ? 'console-output__entry--error' : 'console-output__entry--success'}`}
+                    >
+                      <div className="console-output__entry-header">
+                        <span className="console-output__entry-title">{result.title}</span>
+                        <span className="console-output__entry-time">
+                          {result.timestamp.toLocaleTimeString()}
+                        </span>
+                      </div>
+                      <pre className="console-output__entry-output">{result.output}</pre>
                     </div>
-                    <pre className="console-output__entry-output">{result.output}</pre>
-                  </div>
-                ))
-              )}
+                  ))
+                )}
+              </div>
             </div>
-          </div>
-        </aside>
-      </div>
+          </aside>
+        </div>
+      ) : (
+        <BackupsPage />
+      )}
     </div>
   );
 };

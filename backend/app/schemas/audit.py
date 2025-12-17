@@ -18,9 +18,11 @@ class ActionType(str, Enum):
     SITE_RESTART = "site_restart"
     SITE_PROVISION = "site_provision"
     SITE_DEPROVISION = "site_deprovision"
+    SITE_CONFIG = "site_config"
     ROUTE_ADD = "route_add"
     ROUTE_REMOVE = "route_remove"
     BACKUP_RUN = "backup_run"
+    SITE_RESTORE = "site_restore"
 
 
 class TargetType(str, Enum):

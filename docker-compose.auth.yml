@@ -49,4 +49,6 @@ services:
 
   # Override siteflow to remove direct caddy labels (proxy handles routing)
   siteflow:
-    labels: []
+    labels:
+      caddy: ""
+      caddy.reverse_proxy: ""

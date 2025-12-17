@@ -4,7 +4,8 @@ from fastapi import Header
 
 from app.config import get_settings
 from app.services.audit import AuditService
-from app.services.backups import BackupService
+from app.services.backups import BackupExecutor, BackupService
+from app.services.ssh_client import SSHClientManager
 from app.services.cloudflare import CloudflareService
 from app.services.graph_builder import GraphBuilder
 from app.services.hetzner import HetznerService
@@ -63,3 +64,10 @@ def get_nas_service() -> NASService:
 @lru_cache
 def get_backup_service() -> BackupService:
     return BackupService(get_settings().sqlite_db_path)
+
+
+@lru_cache
+def get_backup_executor() -> BackupExecutor:
+    settings = get_settings()
+    ssh = SSHClientManager(settings)
+    return BackupExecutor(ssh, get_backup_service())

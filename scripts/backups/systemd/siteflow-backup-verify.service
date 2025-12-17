@@ -5,12 +5,27 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/opt/siteflow-backups/verify_backups.sh
+ExecStart=/opt/siteflow-dashboard/scripts/backups/verify_backups.sh
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=siteflow-backup-verify
 
 # Security hardening
-NoNewPrivileges=no
-ProtectSystem=full
-PrivateTmp=true
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+MemoryDenyWriteExecute=yes
+
+# Allow access to required paths
+ReadWritePaths=/var/log/siteflow-backups
+ReadWritePaths=/var/lib/siteflow
+ReadOnlyPaths=/mnt/nas-backup
+ReadOnlyPaths=/opt/siteflow-dashboard
+ReadOnlyPaths=/root/.restic-password

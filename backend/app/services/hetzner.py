@@ -118,7 +118,7 @@ class HetznerService:
                     caddy_domains.update(info["domains"])
                     caddy_targets.update(info["targets"])
 
-            status = self._derive_status(containers)
+            status = self._derive_status(services, containers)
             site = Site(
                 name=directory,
                 path=f"{self.settings.remote_sites_root}/{directory}",
@@ -301,8 +301,12 @@ class HetznerService:
                         break
         return matched
 
-    def _derive_status(self, containers: list[ContainerStatus]) -> str:
+    def _derive_status(self, services: list[SiteService], containers: list[ContainerStatus]) -> str:
         if not containers:
+            # If services are defined but no containers exist, site is stopped
+            # (e.g., after docker compose down which removes containers)
+            if services:
+                return "stopped"
             return "unknown"
         if any("Up" in (c.status or "") for c in containers):
             return "running"

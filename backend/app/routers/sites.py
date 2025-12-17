@@ -238,7 +238,7 @@ async def set_site_env(
 
         duration_ms = (time.time() - start_time) * 1000
         audit.log_action(
-            action_type=ActionType.SITE_START,  # Using SITE_START as placeholder
+            action_type=ActionType.SITE_CONFIG,
             target_type=TargetType.SITE,
             target_name=validated_site,
             status=ActionStatus.SUCCESS,
@@ -251,7 +251,7 @@ async def set_site_env(
     except Exception as exc:
         duration_ms = (time.time() - start_time) * 1000
         audit.log_action(
-            action_type=ActionType.SITE_START,
+            action_type=ActionType.SITE_CONFIG,
             target_type=TargetType.SITE,
             target_name=validated_site,
             status=ActionStatus.FAILURE,

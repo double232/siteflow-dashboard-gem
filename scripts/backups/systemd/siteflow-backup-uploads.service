@@ -1,17 +1,32 @@
 [Unit]
 Description=SiteFlow Uploads Backup
-After=network-online.target docker.service
+After=network-online.target
 Wants=network-online.target
-Requires=docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/opt/siteflow-backups/backup_uploads.sh
+ExecStart=/opt/siteflow-dashboard/scripts/backups/backup_uploads.sh
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=siteflow-backup-uploads
 
 # Security hardening
-NoNewPrivileges=no
-ProtectSystem=full
-PrivateTmp=true
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+MemoryDenyWriteExecute=yes
+
+# Allow access to required paths
+ReadWritePaths=/var/log/siteflow-backups
+ReadWritePaths=/var/lib/siteflow
+ReadWritePaths=/mnt/nas-backup
+ReadOnlyPaths=/opt/sites
+ReadOnlyPaths=/opt/siteflow-dashboard
+ReadOnlyPaths=/root/.restic-password

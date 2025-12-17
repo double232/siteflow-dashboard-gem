@@ -80,9 +80,9 @@ export const QuickActions = ({
           className="action-danger"
           disabled={disabled}
           onClick={onDeprovision}
-          title={`Remove ${siteName}`}
+          title={`Delete ${siteName}`}
         >
-          Deprovision
+          Delete
         </button>
       </div>
     </div>

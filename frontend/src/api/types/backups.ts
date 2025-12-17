@@ -1,5 +1,43 @@
-export type JobType = 'db' | 'uploads' | 'verify' | 'snapshot';
+export type JobType = 'db' | 'uploads' | 'verify' | 'snapshot' | 'system' | 'site';
 export type BackupStatus = 'ok' | 'warn' | 'fail';
+
+// Backup action types
+export interface BackupRequest {
+  snapshot_tag?: string;
+}
+
+export interface RestoreRequest {
+  snapshot_id: string;
+  confirm: boolean;
+}
+
+export interface BackupActionResponse {
+  status: 'success' | 'error';
+  output: string;
+  snapshot_id: string | null;
+  duration_seconds: number;
+}
+
+export interface SnapshotInfo {
+  id: string;
+  short_id: string;
+  time: string;
+  hostname: string;
+  tags: string[];
+  paths: string[];
+}
+
+export interface SnapshotsResponse {
+  snapshots: SnapshotInfo[];
+  site?: string;
+}
+
+export interface SystemBackupStatus {
+  last_system_backup: BackupRun | null;
+  last_all_sites_backup: BackupRun | null;
+  rpo_seconds_system: number | null;
+  overall_status: BackupStatus;
+}
 
 export interface BackupRun {
   id: number;

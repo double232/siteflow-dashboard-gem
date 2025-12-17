@@ -12,6 +12,8 @@ class JobType(str, Enum):
     UPLOADS = "uploads"
     VERIFY = "verify"
     SNAPSHOT = "snapshot"
+    SYSTEM = "system"  # Full system backup
+    SITE = "site"  # Combined site backup (db + uploads)
 
 
 class BackupStatus(str, Enum):
@@ -110,3 +112,55 @@ class BackupConfigResponse(BaseModel):
 
     thresholds: BackupThresholds
     restic_repo: str = "/mnt/nas_backups/restic/webserver"
+
+
+# === New schemas for backup/restore actions ===
+
+
+class BackupRequest(BaseModel):
+    """Request to trigger a backup."""
+
+    snapshot_tag: Optional[str] = Field(None, description="Optional tag for the snapshot")
+
+
+class RestoreRequest(BaseModel):
+    """Request to restore from backup."""
+
+    snapshot_id: str = Field(..., description="Restic snapshot ID to restore from")
+    confirm: bool = Field(False, description="Must be True to proceed with restore")
+
+
+class BackupActionResponse(BaseModel):
+    """Response from backup/restore action."""
+
+    status: str = Field(..., description="'success' or 'error'")
+    output: str = Field(..., description="Command output for console display")
+    snapshot_id: Optional[str] = Field(None, description="New snapshot ID if backup succeeded")
+    duration_seconds: float = Field(..., description="How long the operation took")
+
+
+class SnapshotInfo(BaseModel):
+    """Restic snapshot information."""
+
+    id: str
+    short_id: str
+    time: datetime
+    hostname: str
+    tags: list[str]
+    paths: list[str]
+
+
+class SnapshotsResponse(BaseModel):
+    """List of available snapshots."""
+
+    snapshots: list[SnapshotInfo]
+    site: Optional[str] = None
+
+
+class SystemBackupStatus(BaseModel):
+    """Status of system-level backups."""
+
+    last_system_backup: Optional[BackupRunOut] = None
+    last_all_sites_backup: Optional[BackupRunOut] = None
+    rpo_seconds_system: Optional[int] = None
+    overall_status: BackupStatus

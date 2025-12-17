@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import get_settings
 from app.database import init_database
@@ -72,14 +72,31 @@ async def ping():
     return {"status": "ok", "version": "0.2.0"}
 
 
+# Custom 404 handler - serve SPA for non-API routes
+@app.exception_handler(404)
+async def custom_404_handler(request: Request, exc: StarletteHTTPException):
+    """Serve SPA for non-API 404s, return JSON for API 404s."""
+    path = request.url.path
+    if path.startswith("/api/") or path.startswith("/ws"):
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
+    # Serve SPA for all other 404s
+    if STATIC_DIR.exists():
+        return FileResponse(STATIC_DIR / "index.html")
+    return JSONResponse(status_code=404, content={"detail": "Not found"})
+
+
 # Serve static files (frontend)
 if STATIC_DIR.exists():
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
-    @app.get("/{full_path:path}")
-    async def serve_spa(full_path: str):
-        """Serve the SPA for all non-API routes."""
-        file_path = STATIC_DIR / full_path
+    @app.get("/")
+    async def serve_index():
+        return FileResponse(STATIC_DIR / "index.html")
+
+    # Serve other static files (vite.svg, etc)
+    @app.get("/{filename}")
+    async def serve_static_file(filename: str):
+        file_path = STATIC_DIR / filename
         if file_path.exists() and file_path.is_file():
             return FileResponse(file_path)
         return FileResponse(STATIC_DIR / "index.html")

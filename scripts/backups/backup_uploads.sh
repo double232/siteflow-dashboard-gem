@@ -12,7 +12,31 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "${LOG_DIR}/backup_uploads.log"
 }
 
+# Verify NAS mount is present before proceeding
+check_nas_mount() {
+    if ! mountpoint -q "${NAS_MOUNT}"; then
+        log "FATAL: NAS not mounted at ${NAS_MOUNT}"
+        "${SCRIPT_DIR}/emit_result.sh" "system" "uploads" "fail" "$STARTED_AT" "$(date -Iseconds)" "0" "null" "${RESTIC_REPO}" "NAS not mounted at ${NAS_MOUNT}"
+        exit 1
+    fi
+
+    if [[ ! -d "${RESTIC_REPO}" ]]; then
+        log "FATAL: Restic repository not found at ${RESTIC_REPO}"
+        "${SCRIPT_DIR}/emit_result.sh" "system" "uploads" "fail" "$STARTED_AT" "$(date -Iseconds)" "0" "null" "${RESTIC_REPO}" "Restic repository not found"
+        exit 1
+    fi
+
+    if [[ ! -f "${RESTIC_PASSWORD_FILE}" ]]; then
+        log "FATAL: Restic password file not found at ${RESTIC_PASSWORD_FILE}"
+        "${SCRIPT_DIR}/emit_result.sh" "system" "uploads" "fail" "$STARTED_AT" "$(date -Iseconds)" "0" "null" "${RESTIC_REPO}" "Restic password file not found"
+        exit 1
+    fi
+}
+
 log "=== Starting uploads backup ==="
+
+# Check NAS mount before proceeding
+check_nas_mount
 
 TOTAL_BYTES=0
 BACKUP_IDS=()
