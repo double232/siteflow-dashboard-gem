@@ -98,6 +98,10 @@ export const useSiteAction = () => {
       // Invalidate cache as fallback when WebSocket is disconnected
       queryClient.invalidateQueries({ queryKey: ['sites'] });
       queryClient.invalidateQueries({ queryKey: ['graph'] });
+      // Invalidate health after a delay to give Kuma time to detect the change
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['health'] });
+      }, 5000);
     },
   });
 };
@@ -344,8 +348,8 @@ export const useHealth = () =>
       const { data } = await apiClient.get<HealthResponse>('/api/health/');
       return data;
     },
-    refetchInterval: 30000, // Refresh every 30 seconds
-    staleTime: 15000,
+    refetchInterval: 15000, // Refresh every 15 seconds for faster Kuma updates
+    staleTime: 10000,
   });
 
 // Backup hooks
