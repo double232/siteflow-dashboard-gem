@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import {
   createContext,
   useCallback,
@@ -31,6 +32,7 @@ export const WebSocketProvider = ({ children }: WebSocketProviderProps) => {
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null);
   const clientRef = useRef<WebSocketClient | null>(null);
+  const wasConnectedRef = useRef(false);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -48,9 +50,17 @@ export const WebSocketProvider = ({ children }: WebSocketProviderProps) => {
       }
     });
 
-    // Check connection status periodically
+    // Check connection status periodically and trigger refetch on reconnect
     const statusInterval = setInterval(() => {
-      setIsConnected(client.isConnected);
+      const currentlyConnected = client.isConnected;
+      setIsConnected(currentlyConnected);
+
+      // When reconnecting after a disconnect, refetch data to ensure sync
+      if (currentlyConnected && !wasConnectedRef.current) {
+        queryClient.invalidateQueries({ queryKey: ['sites'] });
+        queryClient.invalidateQueries({ queryKey: ['graph'] });
+      }
+      wasConnectedRef.current = currentlyConnected;
     }, 1000);
 
     client.connect();

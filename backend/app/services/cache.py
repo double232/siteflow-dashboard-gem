@@ -20,7 +20,7 @@ class TimedCache(Generic[T]):
     def get(self, builder: Callable[[], T], force_refresh: bool = False) -> T:
         with self._lock:
             now = time.time()
-            if force_refresh or not self._value or (now - self._timestamp) > self.ttl_seconds:
+            if force_refresh or self._value is None or (now - self._timestamp) > self.ttl_seconds:
                 self._value = builder()
                 self._timestamp = now
         return self._value

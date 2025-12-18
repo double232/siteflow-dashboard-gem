@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     # WebSocket settings
     ws_monitor_interval: float = 10.0
 
+    # Uptime Kuma settings
+    kuma_url: str = "http://uptime-kuma:3001"
+    kuma_username: str = "admin"
+    kuma_password: str = ""
+
     # CORS settings
     # Comma-separated list of allowed origins, or "*" for all (not recommended)
     cors_allowed_origins: str = "http://localhost:5173,http://localhost:3000"

@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import type { Site } from '../api/types';
 import type { HealthResponse } from '../api/types/health';
 import type { BackupSummaryResponse } from '../api/types/backups';

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { SiteFilterBar, computeFilterCounts, filterSites, type SiteFilter } from './SiteFilterBar';
+import { SiteFilterBar, computeFilterCounts, filterSites } from './SiteFilterBar';
 import type { Site } from '../api/types';
 import type { HealthResponse } from '../api/types/health';
 import type { BackupSummaryResponse } from '../api/types/backups';

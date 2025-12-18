@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import sqlite3
 from typing import Any
 
 import socketio
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.config import get_settings
 from app.dependencies import get_hetzner_service
@@ -16,11 +15,6 @@ from app.dependencies import get_hetzner_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/health", tags=["health"])
-
-# Uptime Kuma config
-KUMA_URL = os.getenv("KUMA_URL", "http://uptime-kuma:3001")
-KUMA_USERNAME = os.getenv("KUMA_USERNAME", "admin")
-KUMA_PASSWORD = os.getenv("KUMA_PASSWORD", "")
 
 
 class HeartbeatEntry(BaseModel):
@@ -33,7 +27,7 @@ class MonitorStatus(BaseModel):
     up: bool
     ping: int | None = None
     uptime: float = 0.0  # Percentage 0-100
-    heartbeats: list[HeartbeatEntry] = []  # Last N heartbeats for visualization
+    heartbeats: list[HeartbeatEntry] = Field(default_factory=list)  # Last N heartbeats for visualization
 
 
 class HealthResponse(BaseModel):
@@ -58,6 +52,7 @@ class DeleteMonitorResponse(BaseModel):
 
 async def get_kuma_status() -> dict[str, MonitorStatus]:
     """Fetch monitor status from Uptime Kuma via socket.io."""
+    settings = get_settings()
     sio = socketio.AsyncClient()
     monitors: dict[str, MonitorStatus] = {}
     heartbeats: dict[str, list] = {}  # Store full heartbeat history
@@ -79,14 +74,14 @@ async def get_kuma_status() -> dict[str, MonitorStatus]:
         data_received.set()
 
     try:
-        logger.info(f"Connecting to Kuma at {KUMA_URL}")
-        await asyncio.wait_for(sio.connect(KUMA_URL), timeout=5)
+        logger.info(f"Connecting to Kuma at {settings.kuma_url}")
+        await asyncio.wait_for(sio.connect(settings.kuma_url), timeout=5)
 
         # Login
-        logger.info(f"Logging in as {KUMA_USERNAME}")
+        logger.info(f"Logging in as {settings.kuma_username}")
         result = await sio.call(
             "login",
-            {"username": KUMA_USERNAME, "password": KUMA_PASSWORD, "token": ""},
+            {"username": settings.kuma_username, "password": settings.kuma_password, "token": ""},
             timeout=10,
         )
 
@@ -154,6 +149,7 @@ async def get_kuma_status() -> dict[str, MonitorStatus]:
 
 async def create_kuma_monitor(site_name: str, domain: str) -> tuple[bool, str, int | None]:
     """Create a new HTTP monitor in Uptime Kuma."""
+    settings = get_settings()
     sio = socketio.AsyncClient()
     connected = asyncio.Event()
 
@@ -162,13 +158,13 @@ async def create_kuma_monitor(site_name: str, domain: str) -> tuple[bool, str, i
         connected.set()
 
     try:
-        await asyncio.wait_for(sio.connect(KUMA_URL), timeout=5)
+        await asyncio.wait_for(sio.connect(settings.kuma_url), timeout=5)
         await asyncio.wait_for(connected.wait(), timeout=5)
 
         # Login
         result = await sio.call(
             "login",
-            {"username": KUMA_USERNAME, "password": KUMA_PASSWORD, "token": ""},
+            {"username": settings.kuma_username, "password": settings.kuma_password, "token": ""},
             timeout=10,
         )
 
@@ -209,6 +205,7 @@ async def create_kuma_monitor(site_name: str, domain: str) -> tuple[bool, str, i
 
 async def delete_kuma_monitor(site_name: str) -> tuple[bool, str]:
     """Delete a monitor from Uptime Kuma by name."""
+    settings = get_settings()
     sio = socketio.AsyncClient()
     connected = asyncio.Event()
     monitor_list: list[dict] = []
@@ -225,13 +222,13 @@ async def delete_kuma_monitor(site_name: str) -> tuple[bool, str]:
         data_received.set()
 
     try:
-        await asyncio.wait_for(sio.connect(KUMA_URL), timeout=5)
+        await asyncio.wait_for(sio.connect(settings.kuma_url), timeout=5)
         await asyncio.wait_for(connected.wait(), timeout=5)
 
         # Login
         result = await sio.call(
             "login",
-            {"username": KUMA_USERNAME, "password": KUMA_PASSWORD, "token": ""},
+            {"username": settings.kuma_username, "password": settings.kuma_password, "token": ""},
             timeout=10,
         )
 
@@ -421,11 +418,12 @@ async def check_database_health() -> ComponentStatus:
 async def check_uptime_kuma_health() -> ComponentStatus:
     """Check Uptime Kuma connectivity."""
     import time
+    settings = get_settings()
     try:
         sio = socketio.AsyncClient()
         start = time.time()
 
-        await asyncio.wait_for(sio.connect(KUMA_URL), timeout=5)
+        await asyncio.wait_for(sio.connect(settings.kuma_url), timeout=5)
         latency = (time.time() - start) * 1000
 
         if sio.connected:
@@ -448,19 +446,14 @@ async def check_uptime_kuma_health() -> ComponentStatus:
 @router.get("/system", response_model=SystemHealthResponse)
 async def get_system_health():
     """Get system health status for all dependent services."""
-    # Run all checks concurrently
-    ssh_task = asyncio.create_task(asyncio.to_thread(lambda: asyncio.run(check_ssh_health())))
-    docker_task = asyncio.create_task(asyncio.to_thread(lambda: asyncio.run(check_docker_health())))
-    caddy_task = asyncio.create_task(asyncio.to_thread(lambda: asyncio.run(check_caddy_health())))
-    db_task = asyncio.create_task(asyncio.to_thread(lambda: asyncio.run(check_database_health())))
-    kuma_task = asyncio.create_task(check_uptime_kuma_health())
-
-    # Wait for all checks with proper handling
-    ssh_status = await check_ssh_health()
-    docker_status = await check_docker_health()
-    caddy_status = await check_caddy_health()
-    db_status = await check_database_health()
-    kuma_status = await kuma_task
+    # Run all checks concurrently using asyncio.gather
+    ssh_status, docker_status, caddy_status, db_status, kuma_status = await asyncio.gather(
+        check_ssh_health(),
+        check_docker_health(),
+        check_caddy_health(),
+        check_database_health(),
+        check_uptime_kuma_health(),
+    )
 
     # Determine overall status
     statuses = [ssh_status.status, docker_status.status, caddy_status.status, db_status.status]

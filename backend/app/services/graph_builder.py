@@ -19,7 +19,7 @@ class GraphBuilder:
     def build(
         self,
         sites: SitesResponse,
-        cloudflare: CloudflareStatus,
+        cloudflare: CloudflareStatus | None = None,
         container_metrics: dict[str, ContainerMetrics] | None = None,
         nas_status: NASStatus | None = None,
     ) -> GraphResponse:
@@ -57,9 +57,9 @@ class GraphBuilder:
         )
 
         # Cloudflare node
-        cf_status = "running" if cloudflare.tunnel else "active"
+        cf_status = "running" if cloudflare and cloudflare.tunnel else "active"
         cf_meta: dict = {}
-        if cloudflare.tunnel:
+        if cloudflare and cloudflare.tunnel:
             cf_meta = {
                 "tunnel": cloudflare.tunnel.name,
                 "connections": len(cloudflare.tunnel.connections),

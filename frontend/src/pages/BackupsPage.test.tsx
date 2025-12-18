@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 // Test the helper functions directly by recreating them here
 // (Since they're not exported from BackupsPage, we test the logic)

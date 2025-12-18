@@ -80,6 +80,7 @@ export const useContainerAction = () => {
 };
 
 export const useSiteAction = () => {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
       site,
@@ -93,7 +94,11 @@ export const useSiteAction = () => {
       );
       return data;
     },
-    // WebSocket handles live updates - no cache invalidation needed
+    onSuccess: () => {
+      // Invalidate cache as fallback when WebSocket is disconnected
+      queryClient.invalidateQueries({ queryKey: ['sites'] });
+      queryClient.invalidateQueries({ queryKey: ['graph'] });
+    },
   });
 };
 
@@ -279,7 +284,6 @@ export const useUploadDeploy = () => {
         '/api/deploy/upload',
         formData,
         {
-          headers: { 'Content-Type': 'multipart/form-data' },
           timeout: 300000, // 5 min timeout for large uploads
         },
       );
@@ -308,7 +312,6 @@ export const useFolderDeploy = () => {
         '/api/deploy/folder',
         formData,
         {
-          headers: { 'Content-Type': 'multipart/form-data' },
           timeout: 600000, // 10 min timeout for folder uploads
         },
       );
