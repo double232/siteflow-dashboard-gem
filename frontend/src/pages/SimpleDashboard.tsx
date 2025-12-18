@@ -6,6 +6,7 @@ import { BackupsPage } from './BackupsPage';
 import { MobileBottomNav, type MobileTab } from '../components/MobileBottomNav';
 import { ConsoleSheet } from '../components/ConsoleSheet';
 import { MobileSettings } from '../components/MobileSettings';
+import { MobileOverview } from '../components/MobileOverview';
 import type { TemplateType } from '../api/types/provision';
 
 type Theme = 'light' | 'dark';
@@ -663,6 +664,11 @@ export const SimpleDashboard = () => {
       {activeTab === 'sites' ? (
         <div className="dashboard-layout">
           <main className="dashboard-layout__cards">
+            <MobileOverview
+              sites={siteData?.sites}
+              healthData={healthData}
+              backupData={backupData}
+            />
             <SiteCardGrid
               sites={siteData?.sites}
               healthData={healthData}
