@@ -3,11 +3,15 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sqlite3
 from typing import Any
 
 import socketio
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+from app.config import get_settings
+from app.dependencies import get_hetzner_service
 
 
 logger = logging.getLogger(__name__)
@@ -291,3 +295,191 @@ async def delete_monitor(site_name: str):
         raise HTTPException(status_code=404 if "not found" in message.lower() else 500, detail=message)
 
     return DeleteMonitorResponse(success=success, message=message)
+
+
+# System Health Check Models
+class ComponentStatus(BaseModel):
+    status: str  # "ok", "degraded", "error"
+    message: str
+    latency_ms: float | None = None
+
+
+class SystemHealthResponse(BaseModel):
+    status: str  # "healthy", "degraded", "unhealthy"
+    ssh: ComponentStatus
+    docker: ComponentStatus
+    caddy: ComponentStatus
+    database: ComponentStatus
+    uptime_kuma: ComponentStatus
+
+
+async def check_ssh_health() -> ComponentStatus:
+    """Check SSH connectivity to Hetzner server."""
+    import time
+    try:
+        service = get_hetzner_service()
+        start = time.time()
+        result = service.ssh.execute("echo ok", timeout=10)
+        latency = (time.time() - start) * 1000
+
+        if result.exit_code == 0 and "ok" in result.stdout:
+            return ComponentStatus(status="ok", message="SSH connection successful", latency_ms=round(latency, 2))
+        else:
+            return ComponentStatus(status="error", message=f"SSH check failed: {result.stderr or 'unknown error'}", latency_ms=round(latency, 2))
+    except Exception as e:
+        logger.error(f"SSH health check failed: {e}")
+        return ComponentStatus(status="error", message=f"SSH connection failed: {str(e)}")
+
+
+async def check_docker_health() -> ComponentStatus:
+    """Check Docker availability on remote server."""
+    import time
+    try:
+        service = get_hetzner_service()
+        start = time.time()
+        result = service.ssh.execute("docker info --format '{{.ServerVersion}}'", timeout=15)
+        latency = (time.time() - start) * 1000
+
+        if result.exit_code == 0 and result.stdout:
+            return ComponentStatus(
+                status="ok",
+                message=f"Docker {result.stdout.strip()} available",
+                latency_ms=round(latency, 2)
+            )
+        else:
+            return ComponentStatus(
+                status="error",
+                message=f"Docker not available: {result.stderr or 'unknown error'}",
+                latency_ms=round(latency, 2)
+            )
+    except Exception as e:
+        logger.error(f"Docker health check failed: {e}")
+        return ComponentStatus(status="error", message=f"Docker check failed: {str(e)}")
+
+
+async def check_caddy_health() -> ComponentStatus:
+    """Check Caddy configuration file accessibility."""
+    import time
+    try:
+        service = get_hetzner_service()
+        settings = get_settings()
+        start = time.time()
+
+        # Check if Caddyfile exists and is readable
+        try:
+            content = service.ssh.read_file(settings.remote_caddyfile)
+            latency = (time.time() - start) * 1000
+
+            if content:
+                line_count = len(content.splitlines())
+                return ComponentStatus(
+                    status="ok",
+                    message=f"Caddyfile readable ({line_count} lines)",
+                    latency_ms=round(latency, 2)
+                )
+            else:
+                return ComponentStatus(status="degraded", message="Caddyfile is empty", latency_ms=round(latency, 2))
+        except FileNotFoundError:
+            latency = (time.time() - start) * 1000
+            return ComponentStatus(
+                status="error",
+                message=f"Caddyfile not found: {settings.remote_caddyfile}",
+                latency_ms=round(latency, 2)
+            )
+    except Exception as e:
+        logger.error(f"Caddy health check failed: {e}")
+        return ComponentStatus(status="error", message=f"Caddy check failed: {str(e)}")
+
+
+async def check_database_health() -> ComponentStatus:
+    """Check SQLite database accessibility."""
+    import time
+    try:
+        settings = get_settings()
+        start = time.time()
+
+        conn = sqlite3.connect(settings.sqlite_db_path, timeout=5)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM audit_log")
+        count = cursor.fetchone()[0]
+        conn.close()
+
+        latency = (time.time() - start) * 1000
+        return ComponentStatus(
+            status="ok",
+            message=f"Database accessible ({count} audit entries)",
+            latency_ms=round(latency, 2)
+        )
+    except sqlite3.Error as e:
+        logger.error(f"Database health check failed: {e}")
+        return ComponentStatus(status="error", message=f"Database error: {str(e)}")
+    except Exception as e:
+        logger.error(f"Database health check failed: {e}")
+        return ComponentStatus(status="error", message=f"Database check failed: {str(e)}")
+
+
+async def check_uptime_kuma_health() -> ComponentStatus:
+    """Check Uptime Kuma connectivity."""
+    import time
+    try:
+        sio = socketio.AsyncClient()
+        start = time.time()
+
+        await asyncio.wait_for(sio.connect(KUMA_URL), timeout=5)
+        latency = (time.time() - start) * 1000
+
+        if sio.connected:
+            await sio.disconnect()
+            return ComponentStatus(
+                status="ok",
+                message="Uptime Kuma connected",
+                latency_ms=round(latency, 2)
+            )
+        else:
+            return ComponentStatus(status="error", message="Connection failed")
+    except asyncio.TimeoutError:
+        return ComponentStatus(status="error", message="Connection timeout")
+    except Exception as e:
+        # Don't fail if Kuma is optional/not configured
+        logger.warning(f"Uptime Kuma health check failed: {e}")
+        return ComponentStatus(status="degraded", message=f"Uptime Kuma unavailable: {str(e)}")
+
+
+@router.get("/system", response_model=SystemHealthResponse)
+async def get_system_health():
+    """Get system health status for all dependent services."""
+    # Run all checks concurrently
+    ssh_task = asyncio.create_task(asyncio.to_thread(lambda: asyncio.run(check_ssh_health())))
+    docker_task = asyncio.create_task(asyncio.to_thread(lambda: asyncio.run(check_docker_health())))
+    caddy_task = asyncio.create_task(asyncio.to_thread(lambda: asyncio.run(check_caddy_health())))
+    db_task = asyncio.create_task(asyncio.to_thread(lambda: asyncio.run(check_database_health())))
+    kuma_task = asyncio.create_task(check_uptime_kuma_health())
+
+    # Wait for all checks with proper handling
+    ssh_status = await check_ssh_health()
+    docker_status = await check_docker_health()
+    caddy_status = await check_caddy_health()
+    db_status = await check_database_health()
+    kuma_status = await kuma_task
+
+    # Determine overall status
+    statuses = [ssh_status.status, docker_status.status, caddy_status.status, db_status.status]
+    # Kuma is optional, so only count it if it's in error (not degraded)
+    if kuma_status.status == "error":
+        statuses.append("degraded")  # Downgrade Kuma errors to degraded since it's optional
+
+    if all(s == "ok" for s in statuses):
+        overall = "healthy"
+    elif any(s == "error" for s in statuses[:4]):  # Only SSH, Docker, Caddy, DB are critical
+        overall = "unhealthy"
+    else:
+        overall = "degraded"
+
+    return SystemHealthResponse(
+        status=overall,
+        ssh=ssh_status,
+        docker=docker_status,
+        caddy=caddy_status,
+        database=db_status,
+        uptime_kuma=kuma_status,
+    )

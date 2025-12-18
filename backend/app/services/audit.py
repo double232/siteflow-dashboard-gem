@@ -44,13 +44,40 @@ class AuditService:
         error_message: str | None = None,
         metadata: dict[str, Any] | None = None,
         duration_ms: float | None = None,
+        exit_code: int | None = None,
+        stderr: str | None = None,
     ) -> AuditLogEntry:
-        """Log an action to the audit log."""
+        """Log an action to the audit log with structured logging.
+
+        Args:
+            action_type: Type of action (e.g., site_start, container_stop)
+            target_type: Type of target (e.g., site, container)
+            target_name: Name of the target
+            status: Action status (success, failure, pending)
+            user_email: Email of user who triggered the action
+            output: Command output (stdout)
+            error_message: Error message if action failed
+            metadata: Additional metadata dict
+            duration_ms: Action duration in milliseconds
+            exit_code: Exit code from remote command
+            stderr: Standard error output from command
+        """
         session = self._get_session()
         try:
             # Truncate output if too long
             if output and len(output) > self.settings.audit_max_output_length:
                 output = output[: self.settings.audit_max_output_length] + "... [truncated]"
+
+            # Truncate stderr if too long
+            if stderr and len(stderr) > self.settings.audit_max_output_length:
+                stderr = stderr[: self.settings.audit_max_output_length] + "... [truncated]"
+
+            # Build metadata with exit_code and stderr if provided
+            full_metadata = metadata.copy() if metadata else {}
+            if exit_code is not None:
+                full_metadata["exit_code"] = exit_code
+            if stderr:
+                full_metadata["stderr"] = stderr
 
             log_entry = AuditLog(
                 timestamp=datetime.utcnow(),
@@ -63,12 +90,39 @@ class AuditService:
                 error_message=error_message,
                 duration_ms=duration_ms,
             )
-            if metadata:
-                log_entry.set_metadata(metadata)
+            if full_metadata:
+                log_entry.set_metadata(full_metadata)
 
             session.add(log_entry)
             session.commit()
             session.refresh(log_entry)
+
+            # Emit structured log for monitoring/alerting
+            log_data = {
+                "action": action_type,
+                "target_type": target_type,
+                "target": target_name,
+                "status": status,
+                "duration_ms": round(duration_ms, 2) if duration_ms else None,
+                "user": user_email,
+            }
+            if exit_code is not None:
+                log_data["exit_code"] = exit_code
+            if stderr:
+                log_data["stderr"] = stderr[:500] if len(stderr) > 500 else stderr  # Truncate for log line
+            if error_message:
+                log_data["error"] = error_message[:200] if len(error_message) > 200 else error_message
+
+            if status == ActionStatus.SUCCESS:
+                logger.info(
+                    f"Action completed: {action_type} on {target_type}/{target_name}",
+                    extra=log_data,
+                )
+            else:
+                logger.warning(
+                    f"Action failed: {action_type} on {target_type}/{target_name}",
+                    extra=log_data,
+                )
 
             return AuditLogEntry(
                 id=log_entry.id,

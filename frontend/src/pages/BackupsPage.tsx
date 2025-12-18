@@ -27,6 +27,23 @@ const formatTimeAgo = (seconds: number | null | undefined): string => {
   return `${Math.floor(seconds / 86400)}d ago`;
 };
 
+const formatCountdown = (seconds: number): string => {
+  if (seconds <= 0) return 'Overdue';
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+  return `${Math.floor(seconds / 86400)}d ${Math.floor((seconds % 86400) / 3600)}h`;
+};
+
+const getNextRunSeconds = (
+  rpoSeconds: number | null | undefined,
+  thresholdHours: number
+): number | null => {
+  if (rpoSeconds === null || rpoSeconds === undefined) return null;
+  const thresholdSeconds = thresholdHours * 3600;
+  return thresholdSeconds - rpoSeconds;
+};
+
 const StatusBadge = ({ status }: { status: BackupStatus }) => {
   const colors = {
     ok: 'status-badge--ok',
@@ -359,41 +376,64 @@ export const BackupsPage = () => {
             <tr>
               <th>Site</th>
               <th>Last Backup</th>
+              <th>Next Run</th>
               <th>Status</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {backupSummary?.sites.map((site) => (
-              <tr key={site.site}>
-                <td className="backup-table__site">{site.site}</td>
-                <td className="backup-table__time">
-                  {formatTimeAgo(site.rpo_seconds_db || site.rpo_seconds_uploads)}
-                </td>
-                <td className="backup-table__status">
-                  <StatusBadge status={site.overall_status} />
-                </td>
-                <td className="backup-table__actions">
-                  <button
-                    className="btn btn--small btn--primary"
-                    onClick={() => handleBackupSite(site.site)}
-                    disabled={isAnyPending}
-                  >
-                    {backupSite.isPending ? '...' : 'Backup'}
-                  </button>
-                  <button
-                    className="btn btn--small btn--secondary"
-                    onClick={() => setRestoreTarget({ type: 'site', site: site.site })}
-                    disabled={isAnyPending}
-                  >
-                    Restore
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {backupSummary?.sites.map((site) => {
+              const nextRunSeconds = getNextRunSeconds(
+                site.rpo_seconds_db || site.rpo_seconds_uploads,
+                backupSummary.thresholds.db_fresh_hours
+              );
+              const isOverdue = nextRunSeconds !== null && nextRunSeconds <= 0;
+              const needsRetry = site.overall_status === 'fail' || site.overall_status === 'warn';
+
+              return (
+                <tr key={site.site} className={isOverdue ? 'backup-table__row--overdue' : ''}>
+                  <td className="backup-table__site">{site.site}</td>
+                  <td className="backup-table__time">
+                    {formatTimeAgo(site.rpo_seconds_db || site.rpo_seconds_uploads)}
+                  </td>
+                  <td className={`backup-table__next ${isOverdue ? 'backup-table__next--overdue' : ''}`}>
+                    {nextRunSeconds !== null ? formatCountdown(nextRunSeconds) : '--'}
+                  </td>
+                  <td className="backup-table__status">
+                    <StatusBadge status={site.overall_status} />
+                  </td>
+                  <td className="backup-table__actions">
+                    {needsRetry ? (
+                      <button
+                        className="btn btn--small btn--danger"
+                        onClick={() => handleBackupSite(site.site)}
+                        disabled={isAnyPending}
+                      >
+                        {backupSite.isPending ? '...' : 'Retry'}
+                      </button>
+                    ) : (
+                      <button
+                        className="btn btn--small btn--primary"
+                        onClick={() => handleBackupSite(site.site)}
+                        disabled={isAnyPending}
+                      >
+                        {backupSite.isPending ? '...' : 'Backup'}
+                      </button>
+                    )}
+                    <button
+                      className="btn btn--small btn--secondary"
+                      onClick={() => setRestoreTarget({ type: 'site', site: site.site })}
+                      disabled={isAnyPending}
+                    >
+                      Restore
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
             {(!backupSummary || backupSummary.sites.length === 0) && (
               <tr>
-                <td colSpan={4} className="backup-table__empty">
+                <td colSpan={5} className="backup-table__empty">
                   No sites with backup history
                 </td>
               </tr>

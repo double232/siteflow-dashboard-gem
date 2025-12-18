@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 
 import { useAuditLogs, useBackupSummary, useContainerAction, useDeployFromGitHub, useDeprovisionSite, useFolderDeploy, useHealth, usePullLatest, useProvisionSite, useReloadCaddy, useSiteAction, useSites, useUploadDeploy } from '../api/hooks';
 import { SiteCardGrid } from '../components/SiteCardGrid';
+import { SiteFilterBar, filterSites, type SiteFilter } from '../components/SiteFilterBar';
 import { BackupsPage } from './BackupsPage';
 import { MobileBottomNav, type MobileTab } from '../components/MobileBottomNav';
 import { ConsoleSheet } from '../components/ConsoleSheet';
@@ -401,6 +402,7 @@ export const SimpleDashboard = () => {
 
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [activeTab, setActiveTab] = useState<Tab>('sites');
+  const [siteFilter, setSiteFilter] = useState<SiteFilter>('all');
 
   // Mobile state
   const [isMobile, setIsMobile] = useState(false);
@@ -669,8 +671,15 @@ export const SimpleDashboard = () => {
               healthData={healthData}
               backupData={backupData}
             />
-            <SiteCardGrid
+            <SiteFilterBar
+              activeFilter={siteFilter}
+              onFilterChange={setSiteFilter}
               sites={siteData?.sites}
+              healthData={healthData}
+              backupData={backupData}
+            />
+            <SiteCardGrid
+              sites={filterSites(siteData?.sites, siteFilter, healthData, backupData)}
               healthData={healthData}
               backupData={backupData}
               isLoading={sitesLoading}

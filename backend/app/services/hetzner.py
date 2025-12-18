@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Any, Dict, Tuple
 
@@ -9,23 +10,32 @@ import yaml
 from app.config import Settings
 from app.schemas.site import ContainerStatus, PortMapping, Site, SiteService, SitesResponse
 from app.services.cache import TimedCache
-from app.services.caddy_parser import parse_caddyfile
+from app.services.caddy_parser import parse_caddyfile_with_warnings, detect_unexpanded_vars
 from app.services.ssh_client import SSHClientManager
+
+
+logger = logging.getLogger(__name__)
+
+
+class DockerDiscoveryError(RuntimeError):
+    """Raised when Docker container discovery fails."""
+    pass
 
 
 class HetznerService:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.ssh = SSHClientManager(settings)
-        self.cache = TimedCache[Tuple[list[Site], float]](ttl_seconds=settings.cache_ttl_seconds)
+        # Cache now stores (sites, timestamp, warnings)
+        self.cache = TimedCache[Tuple[list[Site], float, list[str]]](ttl_seconds=settings.cache_ttl_seconds)
 
     def get_sites(self, force_refresh: bool = False) -> SitesResponse:
-        def builder() -> tuple[list[Site], float]:
-            sites = self._collect_sites()
-            return sites, time.time()
+        def builder() -> tuple[list[Site], float, list[str]]:
+            sites, warnings = self._collect_sites()
+            return sites, time.time(), warnings
 
-        sites, updated_at = self.cache.get(builder, force_refresh=force_refresh)
-        return SitesResponse(sites=sites, updated_at=updated_at)
+        sites, updated_at, warnings = self.cache.get(builder, force_refresh=force_refresh)
+        return SitesResponse(sites=sites, updated_at=updated_at, warnings=warnings)
 
     def run_container_action(self, container: str, action: str) -> str:
         valid_actions = {"start", "stop", "restart", "logs"}
@@ -74,10 +84,13 @@ class HetznerService:
 
     # Internal helpers -------------------------------------------------
 
-    def _collect_sites(self) -> list[Site]:
+    def _collect_sites(self) -> tuple[list[Site], list[str]]:
+        """Collect all sites and return them along with any warnings detected."""
+        warnings: list[str] = []
         directories = self.ssh.list_directories(self.settings.remote_sites_root)
         docker_containers = self._fetch_docker_containers()
-        caddy_map = self._map_caddy_targets()
+        caddy_map, caddy_warnings = self._map_caddy_targets()
+        warnings.extend(caddy_warnings)
 
         sites: list[Site] = []
         for directory in directories:
@@ -87,16 +100,30 @@ class HetznerService:
             containers = self._match_containers(services, docker_containers)
             caddy_domains: set[str] = set()
             caddy_targets: set[str] = set()
+
             # Extract caddy info directly from service labels (expanded from .env)
             for service in services:
                 caddy_label = service.labels.get("caddy", "")
                 if caddy_label:
+                    # Check for unexpanded vars in labels
+                    label_warnings = detect_unexpanded_vars(caddy_label, f"site '{directory}' caddy label")
+                    if label_warnings:
+                        warnings.extend(label_warnings)
+                        warnings.append(f"Routing misconfigured for site '{directory}': unexpanded env var in caddy label")
+
                     domain = caddy_label.replace("http://", "").replace("https://", "").strip()
                     if domain and not domain.startswith("$"):  # Skip unexpanded vars
                         caddy_domains.add(domain)
+
                 reverse_proxy = service.labels.get("caddy.reverse_proxy", "")
                 if reverse_proxy:
+                    # Check for unexpanded vars in reverse_proxy
+                    rp_warnings = detect_unexpanded_vars(reverse_proxy, f"site '{directory}' reverse_proxy")
+                    if rp_warnings:
+                        warnings.extend(rp_warnings)
+
                     caddy_targets.add(reverse_proxy)
+
             # Also check caddy_map for running containers
             for service in services:
                 possible_names = [
@@ -111,6 +138,7 @@ class HetznerService:
                         caddy_domains.update(info["domains"])
                         caddy_targets.update(info["targets"])
                         break
+
             # Also check running containers in case naming differs
             for container in containers:
                 if container.name in caddy_map:
@@ -131,18 +159,40 @@ class HetznerService:
             )
             sites.append(site)
 
-        return sites
+        # Deduplicate warnings
+        unique_warnings = list(dict.fromkeys(warnings))
+        if unique_warnings:
+            logger.info(f"Site collection completed with {len(unique_warnings)} warnings")
+
+        return sites, unique_warnings
 
     def _fetch_docker_containers(self) -> dict[str, ContainerStatus]:
         result = self.ssh.execute("docker ps -a --format '{{json .}}'")
+
+        # Hard-fail if docker ps command fails
+        if result.exit_code != 0:
+            error_msg = f"Docker discovery failed (exit_code={result.exit_code}): {result.stderr or 'unknown error'}"
+            logger.error(
+                "Docker container discovery failed",
+                extra={
+                    "action": "docker_ps",
+                    "exit_code": result.exit_code,
+                    "stderr": result.stderr,
+                }
+            )
+            raise DockerDiscoveryError(error_msg)
+
         containers: dict[str, ContainerStatus] = {}
+        parse_errors = 0
         for line in result.stdout.splitlines():
             line = line.strip()
             if not line:
                 continue
             try:
                 payload = json.loads(line)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
+                parse_errors += 1
+                logger.warning(f"Failed to parse docker ps JSON line: {e}")
                 continue
             ports = self._parse_docker_ports(payload.get("Ports"))
             container = ContainerStatus(
@@ -153,16 +203,39 @@ class HetznerService:
                 ports=ports,
             )
             containers[container.name] = container
+
+        if parse_errors > 0:
+            logger.warning(f"Docker discovery completed with {parse_errors} parse errors")
+
+        logger.debug(f"Docker discovery found {len(containers)} containers")
         return containers
 
-    def _map_caddy_targets(self) -> dict[str, dict[str, list[str]]]:
-        """Build mapping from container name to caddy domains using Docker labels and Caddyfile."""
+    def _map_caddy_targets(self) -> tuple[dict[str, dict[str, list[str]]], list[str]]:
+        """Build mapping from container name to caddy domains using Docker labels and Caddyfile.
+
+        Returns:
+            Tuple of (mapping, warnings) where mapping is container_name -> {domains, targets}
+        """
         mapping: dict[str, dict[str, list[str]]] = {}
+        warnings: list[str] = []
 
         # Get labels from all containers
         result = self.ssh.execute(
             "docker ps -a --format '{{.Names}}|{{.Label \"caddy\"}}|{{.Label \"caddy.reverse_proxy\"}}'"
         )
+
+        # Hard-fail if docker ps for labels fails
+        if result.exit_code != 0:
+            error_msg = f"Docker labels discovery failed (exit_code={result.exit_code}): {result.stderr or 'unknown error'}"
+            logger.error(
+                "Docker labels discovery failed",
+                extra={
+                    "action": "docker_ps_labels",
+                    "exit_code": result.exit_code,
+                    "stderr": result.stderr,
+                }
+            )
+            raise DockerDiscoveryError(error_msg)
 
         for line in result.stdout.splitlines():
             line = line.strip()
@@ -179,6 +252,10 @@ class HetznerService:
             if not caddy_domain:
                 continue
 
+            # Check for unexpanded vars in domain
+            domain_warnings = detect_unexpanded_vars(caddy_domain, f"container '{container_name}' caddy label")
+            warnings.extend(domain_warnings)
+
             # Clean up domain (remove http:// prefix if present)
             domain = caddy_domain.replace("http://", "").replace("https://", "").strip()
 
@@ -186,22 +263,37 @@ class HetznerService:
             if domain and domain not in record["domains"]:
                 record["domains"].append(domain)
             if reverse_proxy:
+                # Check for unexpanded vars in reverse_proxy
+                rp_warnings = detect_unexpanded_vars(reverse_proxy, f"container '{container_name}' reverse_proxy")
+                warnings.extend(rp_warnings)
                 record["targets"].append(reverse_proxy)
 
         # Also parse Caddyfile for routes not using Docker labels
-        self._augment_from_caddyfile(mapping)
+        caddyfile_warnings = self._augment_from_caddyfile(mapping)
+        warnings.extend(caddyfile_warnings)
 
-        return mapping
+        return mapping, warnings
 
-    def _augment_from_caddyfile(self, mapping: dict[str, dict[str, list[str]]]) -> None:
-        """Parse Caddyfile and add domain mappings for containers."""
+    def _augment_from_caddyfile(self, mapping: dict[str, dict[str, list[str]]]) -> list[str]:
+        """Parse Caddyfile and add domain mappings for containers.
+
+        Returns:
+            List of warnings detected during parsing
+        """
+        warnings: list[str] = []
         try:
             caddyfile_content = self.ssh.read_file(self.settings.remote_caddyfile)
         except FileNotFoundError:
-            return
+            warnings.append(f"Caddyfile not found at {self.settings.remote_caddyfile}")
+            return warnings
 
-        routes = parse_caddyfile(caddyfile_content)
-        for route in routes:
+        parse_result = parse_caddyfile_with_warnings(caddyfile_content)
+        warnings.extend(parse_result.warnings)
+
+        for route in parse_result.routes:
+            # Collect route-level warnings
+            warnings.extend(route.warnings)
+
             for proxy_target in route.reverse_proxies:
                 # Extract container name from target like "container:port" or "container:port/path"
                 target = proxy_target.split("/")[0]  # Remove path
@@ -219,6 +311,8 @@ class HetznerService:
                             record["domains"].append(domain)
                     if proxy_target not in record["targets"]:
                         record["targets"].append(proxy_target)
+
+        return warnings
 
     def _load_compose_file(self, remote_path: str) -> dict[str, Any]:
         try:

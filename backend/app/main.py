@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -9,10 +10,15 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.config import get_settings
+from app.config import get_settings, validate_config_on_startup, ConfigurationError
 from app.database import init_database
 from app.routers import audit, backups, deploy, graph, health, provision, routes, sites, ws
 from app.services.monitor import get_monitor
+from app.services.hetzner import DockerDiscoveryError
+from app.services.ssh_client import SSHCommandError
+
+
+logger = logging.getLogger(__name__)
 
 
 settings = get_settings()
@@ -22,7 +28,13 @@ STATIC_DIR = Path(__file__).parent.parent / "static"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events."""
-    # Startup
+    # Startup - validate config first
+    try:
+        validate_config_on_startup(settings)
+    except ConfigurationError:
+        # Re-raise to prevent server from starting with invalid config
+        raise
+
     init_database(settings.sqlite_db_path)
     monitor = get_monitor(settings)
     await monitor.start()
@@ -64,6 +76,34 @@ app.include_router(deploy.router)
 app.include_router(ws.router)
 app.include_router(health.router)
 app.include_router(backups.router)
+
+
+@app.exception_handler(DockerDiscoveryError)
+async def docker_discovery_error_handler(request: Request, exc: DockerDiscoveryError):
+    """Handle Docker discovery failures with 500 error."""
+    logger.error(f"Docker discovery failed: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Docker container discovery failed",
+            "error": str(exc),
+            "error_type": "docker_discovery_error",
+        },
+    )
+
+
+@app.exception_handler(SSHCommandError)
+async def ssh_command_error_handler(request: Request, exc: SSHCommandError):
+    """Handle SSH command failures with 500 error."""
+    logger.error(f"SSH command failed: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "SSH command execution failed",
+            "error": str(exc),
+            "error_type": "ssh_command_error",
+        },
+    )
 
 
 @app.get("/api/ping")

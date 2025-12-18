@@ -103,8 +103,12 @@ class TestValidateBranch:
             validate_branch("-main")
 
     def test_rejects_path_traversal(self):
-        with pytest.raises(ValidationError, match="cannot contain"):
+        # Branch starting with . is rejected by regex (must start alphanumeric)
+        with pytest.raises(ValidationError):
             validate_branch("../etc/passwd")
+        # Explicit path traversal in middle is rejected
+        with pytest.raises(ValidationError, match="cannot contain"):
+            validate_branch("feature/../etc/passwd")
 
     def test_rejects_shell_injection(self):
         with pytest.raises(ValidationError):

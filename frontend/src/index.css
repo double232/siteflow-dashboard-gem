@@ -1249,6 +1249,91 @@ main {
   text-decoration: underline;
 }
 
+/* Site Filter Bar */
+.site-filter-bar {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  margin-bottom: 0.5rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.site-filter-bar__btn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: 1rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.site-filter-bar__btn:hover {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+  transform: none;
+}
+
+.site-filter-bar__btn--active {
+  background: linear-gradient(135deg, #3b82f6, #0ea5e9);
+  border-color: transparent;
+  color: white;
+}
+
+.site-filter-bar__btn--active:hover {
+  color: white;
+}
+
+.site-filter-bar__btn--has-items:not(.site-filter-bar__btn--active) {
+  border-color: #f59e0b;
+  color: #f59e0b;
+}
+
+.site-filter-bar__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: var(--bg-hover);
+  border-radius: 0.625rem;
+}
+
+.site-filter-bar__btn--active .site-filter-bar__count {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.site-filter-bar__count--warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.site-filter-bar__btn--active .site-filter-bar__count--warn {
+  background: rgba(255, 255, 255, 0.3);
+  color: white;
+}
+
+@media (max-width: 768px) {
+  .site-filter-bar {
+    padding: 0.5rem;
+    margin: 0 -0.5rem 0.5rem;
+  }
+
+  .site-filter-bar__btn {
+    min-height: var(--touch-target-min);
+    padding: 0.5rem 1rem;
+  }
+}
+
 /* Quick Actions */
 .quick-actions {
   display: flex;
@@ -1270,6 +1355,77 @@ main {
 
 .action-danger {
   background: linear-gradient(135deg, #dc2626, #991b1b);
+}
+
+/* Context Menu */
+.context-menu-container {
+  display: contents;
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 1000;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  padding: 0.5rem 0;
+  min-width: 160px;
+  animation: contextMenuFadeIn 0.15s ease-out;
+}
+
+@keyframes contextMenuFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.context-menu__item {
+  display: block;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.context-menu__item:hover {
+  background: var(--bg-hover);
+}
+
+.context-menu__item--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.context-menu__item--disabled:hover {
+  background: transparent;
+}
+
+.context-menu__item.action-start {
+  color: #22c55e;
+}
+
+.context-menu__item.action-stop {
+  color: #f59e0b;
+}
+
+.context-menu__item.action-danger {
+  color: #ef4444;
+  background: transparent;
+}
+
+.context-menu__item.action-danger:hover {
+  background: rgba(239, 68, 68, 0.1);
 }
 
 /* Log Modal */
@@ -2016,6 +2172,25 @@ main {
   padding: 2rem !important;
 }
 
+.backup-table__next {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.backup-table__next--overdue {
+  color: #ef4444;
+  font-weight: 600;
+}
+
+.backup-table__row--overdue {
+  background-color: rgba(239, 68, 68, 0.05);
+}
+
+.backup-table__row--overdue:hover {
+  background-color: rgba(239, 68, 68, 0.1) !important;
+}
+
 /* Status Badge */
 .status-badge {
   display: inline-block;
@@ -2573,6 +2748,8 @@ main {
 
   .dashboard-layout__cards {
     max-height: none;
+    /* Account for fixed bottom nav so last card isn't hidden */
+    padding-bottom: calc(var(--mobile-bottom-nav-height) + env(safe-area-inset-bottom, 0px) + 1rem);
   }
 
   /* Header adjustments */
@@ -2870,10 +3047,14 @@ main {
   /* Stack quick action buttons vertically on very small screens */
   .quick-actions__row {
     flex-direction: column;
+    gap: 0.5rem;
   }
 
   .quick-actions__row button {
     width: 100%;
+    min-height: var(--touch-target-min);
+    font-size: 0.9rem;
+    padding: 0.75rem;
   }
 
   .template-buttons {
@@ -2886,9 +3067,51 @@ main {
 
   .checklist-item {
     font-size: 0.8rem;
+    min-height: var(--touch-target-min);
+    display: flex;
+    align-items: center;
   }
 
   .backup-badge {
     flex-wrap: wrap;
+  }
+
+  /* Ensure all form inputs are touch-friendly */
+  input, select, textarea {
+    min-height: var(--touch-target-min);
+    font-size: 16px; /* Prevents iOS zoom on focus */
+    padding: 0.75rem;
+  }
+
+  /* Touch-friendly links */
+  .site-card__domain-link {
+    display: inline-block;
+    min-height: var(--touch-target-min);
+    line-height: var(--touch-target-min);
+    padding: 0 0.25rem;
+  }
+
+  /* Mobile bottom nav touch targets */
+  .mobile-bottom-nav__tab {
+    min-width: var(--touch-target-min);
+    min-height: var(--touch-target-min);
+  }
+
+  /* Console sheet touch targets */
+  .console-sheet__close {
+    min-width: var(--touch-target-min);
+    min-height: var(--touch-target-min);
+  }
+
+  /* Settings panel touch targets */
+  .mobile-settings__item {
+    min-height: var(--touch-target-min);
+    padding: 0.75rem 1rem;
+  }
+
+  /* Status badges touch targets */
+  .status-badge {
+    min-height: calc(var(--touch-target-min) * 0.8);
+    padding: 0.5rem 0.75rem;
   }
 }

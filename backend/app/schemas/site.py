@@ -40,3 +40,4 @@ class Site(BaseModel):
 class SitesResponse(BaseModel):
     sites: list[Site]
     updated_at: float
+    warnings: list[str] = Field(default_factory=list)

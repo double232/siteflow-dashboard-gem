@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import type { Site } from '../api/types';
 import type { MonitorStatus } from '../api/types/health';
 import type { SiteBackupStatus } from '../api/types/backups';
@@ -7,6 +7,7 @@ import { StatusChecklist } from './StatusChecklist';
 import { BackupBadge } from './BackupBadge';
 import { QuickActions } from './QuickActions';
 import { UptimeLine } from './UptimeLine';
+import { ContextMenu } from './ContextMenu';
 
 interface Props {
   site: Site;
@@ -37,7 +38,49 @@ export const SiteCard = ({
   const runningCount = site.containers.filter(c => c.status?.includes('Up')).length;
   const totalCount = site.containers.length;
 
+  const contextMenuActions = useMemo(() => [
+    {
+      label: 'Start',
+      onClick: () => onSiteAction(site.name, 'start'),
+      className: 'action-start',
+      disabled: isActionPending,
+    },
+    {
+      label: 'Stop',
+      onClick: () => onSiteAction(site.name, 'stop'),
+      className: 'action-stop',
+      disabled: isActionPending,
+    },
+    {
+      label: 'Restart',
+      onClick: () => onSiteAction(site.name, 'restart'),
+      disabled: isActionPending,
+    },
+    {
+      label: 'View Logs',
+      onClick: () => onViewLogs(site.name),
+      disabled: isActionPending,
+    },
+    {
+      label: 'Deploy',
+      onClick: () => onDeploy(site.name),
+      disabled: isActionPending,
+    },
+    {
+      label: 'Pull',
+      onClick: () => onPull(site.name),
+      disabled: isActionPending,
+    },
+    {
+      label: 'Delete',
+      onClick: () => onDeprovision(site.name),
+      className: 'action-danger',
+      disabled: isActionPending,
+    },
+  ], [site.name, isActionPending, onSiteAction, onViewLogs, onDeploy, onPull, onDeprovision]);
+
   return (
+    <ContextMenu actions={contextMenuActions} disabled={isActionPending}>
     <div className={`site-card ${isMobile && isExpanded ? 'site-card--expanded' : ''}`}>
       <header className="site-card__header">
         <h3 className="site-card__name">{site.name}</h3>
@@ -117,5 +160,6 @@ export const SiteCard = ({
         disabled={isActionPending}
       />
     </div>
+    </ContextMenu>
   );
 };
