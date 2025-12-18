@@ -384,7 +384,7 @@ export const BackupsPage = () => {
           <tbody>
             {backupSummary?.sites.map((site) => {
               const nextRunSeconds = getNextRunSeconds(
-                site.rpo_seconds_db || site.rpo_seconds_uploads,
+                site.rpo_seconds_db ?? site.rpo_seconds_uploads,
                 backupSummary.thresholds.db_fresh_hours
               );
               const isOverdue = nextRunSeconds !== null && nextRunSeconds <= 0;
@@ -394,7 +394,7 @@ export const BackupsPage = () => {
                 <tr key={site.site} className={isOverdue ? 'backup-table__row--overdue' : ''}>
                   <td className="backup-table__site">{site.site}</td>
                   <td className="backup-table__time">
-                    {formatTimeAgo(site.rpo_seconds_db || site.rpo_seconds_uploads)}
+                    {formatTimeAgo(site.rpo_seconds_db ?? site.rpo_seconds_uploads)}
                   </td>
                   <td className={`backup-table__next ${isOverdue ? 'backup-table__next--overdue' : ''}`}>
                     {nextRunSeconds !== null ? formatCountdown(nextRunSeconds) : '--'}
