@@ -1043,7 +1043,7 @@ main {
 
 .dashboard-layout__cards {
   overflow-y: auto;
-  padding-right: 0.25rem;
+  padding: 0.25rem 0.25rem 0 0;
 }
 
 .dashboard-layout__console {

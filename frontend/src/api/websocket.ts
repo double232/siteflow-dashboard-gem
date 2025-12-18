@@ -15,7 +15,7 @@ export class WebSocketClient {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const baseUrl = import.meta.env.VITE_API_BASE_URL;
     const host = baseUrl ? new URL(baseUrl).host : window.location.host;
-    this.url = url || `${protocol}//${host}/ws`;
+    this.url = url || `${protocol}//${host}/api/ws`;
   }
 
   connect(): void {
