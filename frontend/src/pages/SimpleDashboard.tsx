@@ -1,8 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 import { useAuditLogs, useBackupSummary, useContainerAction, useDeployFromGitHub, useDeprovisionSite, useFolderDeploy, useHealth, usePullLatest, useProvisionSite, useReloadCaddy, useSiteAction, useSites, useUploadDeploy } from '../api/hooks';
 import { SiteCardGrid } from '../components/SiteCardGrid';
 import { BackupsPage } from './BackupsPage';
+import { MobileBottomNav, type MobileTab } from '../components/MobileBottomNav';
+import { ConsoleSheet } from '../components/ConsoleSheet';
+import { MobileSettings } from '../components/MobileSettings';
 import type { TemplateType } from '../api/types/provision';
 
 type Theme = 'light' | 'dark';
@@ -398,6 +401,63 @@ export const SimpleDashboard = () => {
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [activeTab, setActiveTab] = useState<Tab>('sites');
 
+  // Mobile state
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileTab, setMobileTab] = useState<MobileTab>('sites');
+  const [consoleSheetOpen, setConsoleSheetOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [unreadConsoleCount, setUnreadConsoleCount] = useState(0);
+  const prevHistoryLength = useRef(0);
+
+  // Media query listener for mobile detection
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 768px)');
+    setIsMobile(mediaQuery.matches);
+
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mediaQuery.addEventListener('change', handler);
+    return () => mediaQuery.removeEventListener('change', handler);
+  }, []);
+
+  // Sync mobile tab with active tab
+  useEffect(() => {
+    if (mobileTab === 'sites' || mobileTab === 'backups') {
+      setActiveTab(mobileTab);
+    }
+    if (mobileTab === 'console') {
+      setConsoleSheetOpen(true);
+    }
+    if (mobileTab === 'settings') {
+      setSettingsOpen(true);
+    }
+  }, [mobileTab]);
+
+  // Track unread console messages
+  useEffect(() => {
+    if (commandHistory.length > prevHistoryLength.current && !consoleSheetOpen && isMobile) {
+      setUnreadConsoleCount(prev => prev + (commandHistory.length - prevHistoryLength.current));
+    }
+    prevHistoryLength.current = commandHistory.length;
+  }, [commandHistory.length, consoleSheetOpen, isMobile]);
+
+  // Clear unread count when console opens
+  useEffect(() => {
+    if (consoleSheetOpen) {
+      setUnreadConsoleCount(0);
+    }
+  }, [consoleSheetOpen]);
+
+  // Handle mobile tab change
+  const handleMobileTabChange = (tab: MobileTab) => {
+    if (tab === 'console') {
+      setConsoleSheetOpen(true);
+    } else if (tab === 'settings') {
+      setSettingsOpen(true);
+    } else {
+      setMobileTab(tab);
+    }
+  };
+
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('theme', theme);
@@ -614,6 +674,7 @@ export const SimpleDashboard = () => {
               onDeploy={(siteName) => setDeploySite(siteName)}
               onPull={handlePull}
               isActionPending={siteActionPending || deployPending || pullPending || uploadPending || folderPending}
+              isMobile={isMobile}
             />
           </main>
 
@@ -650,6 +711,35 @@ export const SimpleDashboard = () => {
         </div>
       ) : (
         <BackupsPage />
+      )}
+
+      {/* Mobile Components */}
+      {isMobile && (
+        <>
+          <MobileBottomNav
+            activeTab={mobileTab}
+            onTabChange={handleMobileTabChange}
+            unreadConsoleCount={unreadConsoleCount}
+          />
+          <ConsoleSheet
+            isOpen={consoleSheetOpen}
+            onClose={() => setConsoleSheetOpen(false)}
+            history={commandHistory}
+            onClear={() => setCommandHistory([])}
+          />
+          <MobileSettings
+            isOpen={settingsOpen}
+            onClose={() => setSettingsOpen(false)}
+            theme={theme}
+            onToggleTheme={toggleTheme}
+            onShowProvision={() => setShowProvision(true)}
+            onShowAudit={handleShowAudit}
+            onRefresh={() => refetchSites()}
+            onReloadCaddy={handleReloadCaddy}
+            isRefreshing={sitesLoading}
+            isReloadingCaddy={reloadCaddy.isPending}
+          />
+        </>
       )}
     </div>
   );

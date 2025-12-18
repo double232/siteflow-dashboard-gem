@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { Site } from '../api/types';
 import type { MonitorStatus } from '../api/types/health';
 import type { SiteBackupStatus } from '../api/types/backups';
@@ -17,6 +18,7 @@ interface Props {
   onDeploy: (siteName: string) => void;
   onPull: (siteName: string) => void;
   isActionPending: boolean;
+  isMobile?: boolean;
 }
 
 export const SiteCard = ({
@@ -29,12 +31,14 @@ export const SiteCard = ({
   onDeploy,
   onPull,
   isActionPending,
+  isMobile = false,
 }: Props) => {
+  const [isExpanded, setIsExpanded] = useState(false);
   const runningCount = site.containers.filter(c => c.status?.includes('Up')).length;
   const totalCount = site.containers.length;
 
   return (
-    <div className="site-card">
+    <div className={`site-card ${isMobile && isExpanded ? 'site-card--expanded' : ''}`}>
       <header className="site-card__header">
         <h3 className="site-card__name">{site.name}</h3>
         <StatusBadge status={site.status} />
@@ -45,7 +49,7 @@ export const SiteCard = ({
       <StatusChecklist site={site} healthStatus={healthStatus} />
       <BackupBadge backupStatus={backupStatus} />
 
-      <div className="site-card__info">
+      <div className={`site-card__info ${isMobile ? 'site-card__info--collapsible' : ''}`}>
         <div className="site-card__info-row">
           <span className="site-card__info-label">Domains:</span>
           <span className="site-card__info-value">
@@ -93,6 +97,15 @@ export const SiteCard = ({
           </span>
         </div>
       </div>
+
+      {isMobile && (
+        <button
+          className="site-card__expand-btn"
+          onClick={() => setIsExpanded(!isExpanded)}
+        >
+          {isExpanded ? 'Hide Details' : 'Show Details'}
+        </button>
+      )}
 
       <QuickActions
         siteName={site.name}

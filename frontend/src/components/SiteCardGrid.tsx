@@ -14,6 +14,7 @@ interface Props {
   onDeploy: (siteName: string) => void;
   onPull: (siteName: string) => void;
   isActionPending: boolean;
+  isMobile?: boolean;
 }
 
 export const SiteCardGrid = ({
@@ -27,6 +28,7 @@ export const SiteCardGrid = ({
   onDeploy,
   onPull,
   isActionPending,
+  isMobile = false,
 }: Props) => {
   if (isLoading) {
     return (
@@ -72,6 +74,7 @@ export const SiteCardGrid = ({
           onDeploy={onDeploy}
           onPull={onPull}
           isActionPending={isActionPending}
+          isMobile={isMobile}
         />
       ))}
     </div>
