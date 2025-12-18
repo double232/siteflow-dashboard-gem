@@ -276,7 +276,9 @@ describe('ContextMenu', () => {
     });
 
     const preventDefaultSpy = vi.spyOn(event, 'preventDefault');
-    target.dispatchEvent(event);
+    act(() => {
+      target.dispatchEvent(event);
+    });
 
     expect(preventDefaultSpy).toHaveBeenCalled();
   });
