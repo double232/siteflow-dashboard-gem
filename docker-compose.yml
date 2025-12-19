@@ -52,6 +52,7 @@ services:
     labels:
       caddy: dashboard.double232.com
       caddy.reverse_proxy: "{{upstreams 8000}}"
+      caddy.tls: internal
     networks:
       - siteflow
       - web_proxy

@@ -407,10 +407,12 @@ export const SimpleDashboard = () => {
   // Mobile state
   const [isMobile, setIsMobile] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>('sites');
-  const [consoleSheetOpen, setConsoleSheetOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [lastContentTab, setLastContentTab] = useState<Extract<MobileTab, 'sites' | 'backups'>>('sites');
   const [unreadConsoleCount, setUnreadConsoleCount] = useState(0);
+  const [isConsoleCollapsed, setIsConsoleCollapsed] = useState(false);
   const prevHistoryLength = useRef(0);
+  const isConsoleSheetOpen = isMobile && mobileTab === 'console';
+  const isSettingsOpen = isMobile && mobileTab === 'settings';
 
   // Media query listener for mobile detection
   useEffect(() => {
@@ -422,43 +424,69 @@ export const SimpleDashboard = () => {
     return () => mediaQuery.removeEventListener('change', handler);
   }, []);
 
-  // Sync mobile tab with active tab
+  // Keep mobile tab aligned with the current desktop tab when layouts change
+  useEffect(() => {
+    if (isMobile) {
+      setMobileTab((prev) => {
+        if (prev === 'console' || prev === 'settings') {
+          return prev;
+        }
+        return activeTab;
+      });
+    } else {
+      setMobileTab(activeTab);
+    }
+  }, [isMobile, activeTab]);
+
+  // Sync desktop tab + remember last content tab whenever we're on a primary view
   useEffect(() => {
     if (mobileTab === 'sites' || mobileTab === 'backups') {
       setActiveTab(mobileTab);
-    }
-    if (mobileTab === 'console') {
-      setConsoleSheetOpen(true);
-    }
-    if (mobileTab === 'settings') {
-      setSettingsOpen(true);
+      setLastContentTab(mobileTab);
     }
   }, [mobileTab]);
 
+  // Keep last known content tab in sync when leaving mobile
+  useEffect(() => {
+    if (!isMobile && (activeTab === 'sites' || activeTab === 'backups')) {
+      setLastContentTab(activeTab);
+    }
+  }, [activeTab, isMobile]);
+
+  // Prevent body scroll when drawers are open
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+    const drawerOpen = isMobile && (mobileTab === 'console' || mobileTab === 'settings');
+    if (!drawerOpen) {
+      return;
+    }
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isMobile, mobileTab]);
+
   // Track unread console messages
   useEffect(() => {
-    if (commandHistory.length > prevHistoryLength.current && !consoleSheetOpen && isMobile) {
+    if (commandHistory.length > prevHistoryLength.current && !isConsoleSheetOpen && isMobile) {
       setUnreadConsoleCount(prev => prev + (commandHistory.length - prevHistoryLength.current));
     }
     prevHistoryLength.current = commandHistory.length;
-  }, [commandHistory.length, consoleSheetOpen, isMobile]);
+  }, [commandHistory.length, isConsoleSheetOpen, isMobile]);
 
   // Clear unread count when console opens
   useEffect(() => {
-    if (consoleSheetOpen) {
+    if (isConsoleSheetOpen) {
       setUnreadConsoleCount(0);
     }
-  }, [consoleSheetOpen]);
+  }, [isConsoleSheetOpen]);
 
   // Handle mobile tab change
   const handleMobileTabChange = (tab: MobileTab) => {
-    if (tab === 'console') {
-      setConsoleSheetOpen(true);
-    } else if (tab === 'settings') {
-      setSettingsOpen(true);
-    } else {
-      setMobileTab(tab);
-    }
+    setMobileTab(tab);
   };
 
   useEffect(() => {
@@ -472,7 +500,7 @@ export const SimpleDashboard = () => {
 
   return (
     <div className="simple-dashboard">
-      <header className="dashboard__header">
+      <header className="dashboard__header simple-dashboard__header">
         <h1>SiteFlow Dashboard</h1>
         <nav className="header-tabs">
           <button
@@ -693,34 +721,49 @@ export const SimpleDashboard = () => {
             />
           </main>
 
-          <aside className="dashboard-layout__console">
-            <div className="console-output">
-              <div className="console-output__header">
-                <span className="console-output__title">Console Output</span>
-                {commandHistory.length > 0 && (
-                  <button className="console-output__clear" onClick={() => setCommandHistory([])}>Clear</button>
-                )}
+          <aside className={`dashboard-layout__console ${isConsoleCollapsed ? 'dashboard-layout__console--collapsed' : ''}`}>
+            <div className="console-panel">
+              <div className="console-panel__header">
+                <span className="console-panel__title">Console Output</span>
+                <div className="console-panel__actions">
+                  {commandHistory.length > 0 && !isConsoleCollapsed && (
+                    <button type="button" className="console-panel__button" onClick={() => setCommandHistory([])}>Clear</button>
+                  )}
+                  <button
+                    type="button"
+                    className="console-panel__button"
+                    onClick={() => setIsConsoleCollapsed(prev => !prev)}
+                  >
+                    {isConsoleCollapsed ? 'Show' : 'Hide'}
+                  </button>
+                </div>
               </div>
-              <div className="console-output__content">
-                {commandHistory.length === 0 ? (
-                  <p className="console-output__placeholder">Command output will appear here</p>
-                ) : (
-                  commandHistory.map((result, index) => (
-                    <div
-                      key={`${result.timestamp.getTime()}-${index}`}
-                      className={`console-output__entry ${result.isError ? 'console-output__entry--error' : 'console-output__entry--success'}`}
-                    >
-                      <div className="console-output__entry-header">
-                        <span className="console-output__entry-title">{result.title}</span>
-                        <span className="console-output__entry-time">
-                          {result.timestamp.toLocaleTimeString()}
-                        </span>
-                      </div>
-                      <pre className="console-output__entry-output">{result.output}</pre>
-                    </div>
-                  ))
-                )}
-              </div>
+              {!isConsoleCollapsed ? (
+                <div className="console-output">
+                  <div className="console-output__content">
+                    {commandHistory.length === 0 ? (
+                      <p className="console-output__placeholder">Command output will appear here</p>
+                    ) : (
+                      commandHistory.map((result, index) => (
+                        <div
+                          key={`${result.timestamp.getTime()}-${index}`}
+                          className={`console-output__entry ${result.isError ? 'console-output__entry--error' : 'console-output__entry--success'}`}
+                        >
+                          <div className="console-output__entry-header">
+                            <span className="console-output__entry-title">{result.title}</span>
+                            <span className="console-output__entry-time">
+                              {result.timestamp.toLocaleTimeString()}
+                            </span>
+                          </div>
+                          <pre className="console-output__entry-output">{result.output}</pre>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <p className="console-panel__collapsed-note">Console hidden. Select "Show" to view recent commands.</p>
+              )}
             </div>
           </aside>
         </div>
@@ -737,14 +780,14 @@ export const SimpleDashboard = () => {
             unreadConsoleCount={unreadConsoleCount}
           />
           <ConsoleSheet
-            isOpen={consoleSheetOpen}
-            onClose={() => setConsoleSheetOpen(false)}
+            isOpen={isConsoleSheetOpen}
+            onClose={() => setMobileTab(lastContentTab)}
             history={commandHistory}
             onClear={() => setCommandHistory([])}
           />
           <MobileSettings
-            isOpen={settingsOpen}
-            onClose={() => setSettingsOpen(false)}
+            isOpen={isSettingsOpen}
+            onClose={() => setMobileTab(lastContentTab)}
             theme={theme}
             onToggleTheme={toggleTheme}
             onShowProvision={() => setShowProvision(true)}

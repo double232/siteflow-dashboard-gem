@@ -142,6 +142,9 @@ class CloudflareService:
                 "hostname": hostname,
                 "service": service,
             }
+            # For HTTPS origins, skip TLS verification (Let's Encrypt certs are valid but tunnel may not trust them)
+            if service.startswith("https://"):
+                new_entry["originRequest"] = {"noTLSVerify": True}
 
             # Insert before the last catch-all entry (if it exists)
             if ingress and ingress[-1].get("service") == "http_status:404":

@@ -526,8 +526,13 @@ class ProvisionService:
             # Start containers (caddy-docker-proxy auto-discovers labels)
             self.ssh.execute(f"cd {quoted_site_path} && docker compose up -d", check=True)
 
+            # Reload Caddy to pick up the new container's labels immediately
+            # This prevents HTTP/HTTPS redirect loops from stale config
+            self.ssh.execute("docker restart caddy", check=False)
+            logger.info(f"Reloaded Caddy to pick up labels for {validated_name}")
+
             # Add public hostname to Cloudflare tunnel and create DNS record
-            # Route through localhost:80 (caddy-docker-proxy) which handles routing to containers
+            # Route through HTTP - Cloudflare handles TLS at the edge, tunnel is already encrypted
             service_url = "http://localhost:80"
             cf_success = self.cloudflare.add_public_hostname(domain, service_url)
             if not cf_success:

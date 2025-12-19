@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react';
+
 interface CommandResult {
   title: string;
   output: string;
@@ -12,7 +14,66 @@ interface Props {
   onClear: () => void;
 }
 
+const FOCUSABLE_SELECTORS = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
 export const ConsoleSheet = ({ isOpen, onClose, history, onClear }: Props) => {
+  const sheetRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    const container = sheetRef.current;
+    if (!container) {
+      return;
+    }
+
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const getFocusable = () =>
+      Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS)).filter(
+        (element) => !element.hasAttribute('disabled') && element.tabIndex !== -1
+      );
+
+    const initial = getFocusable();
+    (initial[0] ?? container).focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key === 'Tab') {
+        const focusableItems = getFocusable();
+        if (!focusableItems.length) {
+          event.preventDefault();
+          return;
+        }
+        const first = focusableItems[0];
+        const last = focusableItems[focusableItems.length - 1];
+        const active = document.activeElement as HTMLElement;
+        if (event.shiftKey && active === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && active === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+
+    container.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      container.removeEventListener('keydown', handleKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, [isOpen, onClose, history.length]);
+
   return (
     <>
       <div
@@ -21,10 +82,13 @@ export const ConsoleSheet = ({ isOpen, onClose, history, onClear }: Props) => {
         aria-hidden={!isOpen}
       />
       <div
+        ref={sheetRef}
         className={`console-sheet ${isOpen ? 'console-sheet--visible' : ''}`}
         role="dialog"
         aria-label="Console Output"
+        aria-modal="true"
         aria-hidden={!isOpen}
+        tabIndex={-1}
       >
         <div className="console-sheet__handle">
           <div className="console-sheet__handle-bar" />
@@ -33,11 +97,11 @@ export const ConsoleSheet = ({ isOpen, onClose, history, onClear }: Props) => {
           <span className="console-sheet__title">Console Output</span>
           <div className="console-sheet__actions">
             {history.length > 0 && (
-              <button className="console-sheet__close" onClick={onClear}>
+              <button className="console-sheet__close" type="button" onClick={onClear}>
                 Clear
               </button>
             )}
-            <button className="console-sheet__close" onClick={onClose}>
+            <button className="console-sheet__close" type="button" onClick={onClose}>
               Close
             </button>
           </div>

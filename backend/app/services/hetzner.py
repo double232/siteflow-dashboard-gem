@@ -67,9 +67,10 @@ class HetznerService:
         if action == "start":
             cmd = f"cd {site_path} && docker compose up -d --no-build"
         elif action == "stop":
-            cmd = f"cd {site_path} && docker compose down"
+            # Keep containers/labels intact so routing/maintenance pages stay available
+            cmd = f"cd {site_path} && docker compose stop"
         elif action == "restart":
-            cmd = f"cd {site_path} && docker compose down && docker compose up -d --no-build"
+            cmd = f"cd {site_path} && docker compose stop && docker compose up -d --no-build"
         else:
             raise ValueError(f"Unknown action: {action}")
 

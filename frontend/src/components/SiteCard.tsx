@@ -34,7 +34,15 @@ export const SiteCard = ({
   isActionPending,
   isMobile = false,
 }: Props) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isMobileExpanded, setIsMobileExpanded] = useState(false);
+  const isExpanded = !isMobile || isMobileExpanded;
+
+  const toggleMobileExpanded = () => {
+    if (!isMobile) {
+      return;
+    }
+    setIsMobileExpanded((prev) => !prev);
+  };
   const runningCount = site.containers.filter(c => c.status?.includes('Up')).length;
   const totalCount = site.containers.length;
 
@@ -81,7 +89,7 @@ export const SiteCard = ({
 
   return (
     <ContextMenu actions={contextMenuActions} disabled={isActionPending}>
-    <div className={`site-card ${isMobile && isExpanded ? 'site-card--expanded' : ''}`}>
+    <div className={`site-card ${isExpanded ? 'site-card--expanded' : ''}`}>
       <header className="site-card__header">
         <h3 className="site-card__name">{site.name}</h3>
         <StatusBadge status={site.status} />
@@ -144,21 +152,25 @@ export const SiteCard = ({
       {isMobile && (
         <button
           className="site-card__expand-btn"
-          onClick={() => setIsExpanded(!isExpanded)}
+          onClick={toggleMobileExpanded}
+          aria-expanded={isExpanded}
+          type="button"
         >
-          {isExpanded ? 'Hide Details' : 'Show Details'}
+          {isExpanded ? 'Hide Details & Actions' : 'Show Details & Actions'}
         </button>
       )}
 
-      <QuickActions
-        siteName={site.name}
-        onSiteAction={(action) => onSiteAction(site.name, action)}
-        onViewLogs={() => onViewLogs(site.name)}
-        onDeprovision={() => onDeprovision(site.name)}
-        onDeploy={() => onDeploy(site.name)}
-        onPull={() => onPull(site.name)}
-        disabled={isActionPending}
-      />
+      {isExpanded && (
+        <QuickActions
+          siteName={site.name}
+          onSiteAction={(action) => onSiteAction(site.name, action)}
+          onViewLogs={() => onViewLogs(site.name)}
+          onDeprovision={() => onDeprovision(site.name)}
+          onDeploy={() => onDeploy(site.name)}
+          onPull={() => onPull(site.name)}
+          disabled={isActionPending}
+        />
+      )}
     </div>
     </ContextMenu>
   );
