@@ -1,7 +1,7 @@
 services:
   siteflow:
     build: .
-    container_name: siteflow
+    container_name: siteflow-gem
     restart: unless-stopped
     volumes:
       - ./data:/app/data
