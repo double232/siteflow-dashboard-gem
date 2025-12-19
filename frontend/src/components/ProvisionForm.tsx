@@ -252,8 +252,8 @@ export const ProvisionForm = ({ onSuccess, onCancel, onOutput }: ProvisionFormPr
             <input
               ref={folderInputRef}
               type="file"
-              // @ts-expect-error webkitdirectory is not in types
               webkitdirectory=""
+              directory=""
               multiple
               onChange={handleFolderSelect}
               disabled={isSubmitting}

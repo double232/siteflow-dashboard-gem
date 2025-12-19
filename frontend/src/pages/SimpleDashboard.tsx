@@ -601,7 +601,8 @@ export const SimpleDashboard = () => {
                 onChange={(e) => setProvisionFiles(e.target.files)}
                 disabled={provisionPending}
                 hidden
-                {...{ webkitdirectory: '', directory: '' } as React.InputHTMLAttributes<HTMLInputElement>}
+                webkitdirectory=""
+                directory=""
               />
             </label>
           )}
@@ -682,7 +683,8 @@ export const SimpleDashboard = () => {
                   onChange={handleFolderUpload}
                   disabled={folderPending}
                   hidden
-                  {...{ webkitdirectory: '', directory: '' } as React.InputHTMLAttributes<HTMLInputElement>}
+                  webkitdirectory=""
+                  directory=""
                 />
               </label>
             </div>

@@ -4,6 +4,8 @@ import os
 import sys
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.utils.path_utils import resolve_local_path
+
 
 logger = logging.getLogger(__name__)
 
@@ -91,10 +93,10 @@ class Settings(BaseSettings):
         if not self.hetzner_user:
             errors.append("HETZNER_USER is required but not set")
 
-        if not self.hetzner_key_path:
+        key_path = resolve_local_path(self.hetzner_key_path)
+        if not key_path:
             errors.append("HETZNER_KEY_PATH is required but not set")
         else:
-            key_path = os.path.expanduser(self.hetzner_key_path)
             if not os.path.exists(key_path):
                 errors.append(f"SSH key file not found: {key_path}")
             elif not os.access(key_path, os.R_OK):

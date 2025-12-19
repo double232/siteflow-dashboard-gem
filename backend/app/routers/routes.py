@@ -105,7 +105,7 @@ async def add_route(request: RouteRequest):
         service.cache.invalidate()
 
         duration_ms = (time.time() - start_time) * 1000
-        audit.log_action(
+        await audit.log_action_async(
             action_type=ActionType.ROUTE_ADD,
             target_type=TargetType.ROUTE,
             target_name=request.domain,
@@ -123,7 +123,7 @@ async def add_route(request: RouteRequest):
 
     except ValueError as exc:
         duration_ms = (time.time() - start_time) * 1000
-        audit.log_action(
+        await audit.log_action_async(
             action_type=ActionType.ROUTE_ADD,
             target_type=TargetType.ROUTE,
             target_name=request.domain,
@@ -134,7 +134,7 @@ async def add_route(request: RouteRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         duration_ms = (time.time() - start_time) * 1000
-        audit.log_action(
+        await audit.log_action_async(
             action_type=ActionType.ROUTE_ADD,
             target_type=TargetType.ROUTE,
             target_name=request.domain,
@@ -186,7 +186,7 @@ async def remove_route(domain: str):
         service.cache.invalidate()
 
         duration_ms = (time.time() - start_time) * 1000
-        audit.log_action(
+        await audit.log_action_async(
             action_type=ActionType.ROUTE_REMOVE,
             target_type=TargetType.ROUTE,
             target_name=domain,
@@ -203,7 +203,7 @@ async def remove_route(domain: str):
 
     except ValueError as exc:
         duration_ms = (time.time() - start_time) * 1000
-        audit.log_action(
+        await audit.log_action_async(
             action_type=ActionType.ROUTE_REMOVE,
             target_type=TargetType.ROUTE,
             target_name=domain,
@@ -214,7 +214,7 @@ async def remove_route(domain: str):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         duration_ms = (time.time() - start_time) * 1000
-        audit.log_action(
+        await audit.log_action_async(
             action_type=ActionType.ROUTE_REMOVE,
             target_type=TargetType.ROUTE,
             target_name=domain,

@@ -2,6 +2,8 @@ import type { WebSocketMessage } from './types';
 
 export type MessageHandler = (message: WebSocketMessage) => void;
 
+type StatusHandler = (connected: boolean) => void;
+
 export class WebSocketClient {
   private ws: WebSocket | null = null;
   private url: string;
@@ -10,6 +12,7 @@ export class WebSocketClient {
   private reconnectDelay = 1000;
   private handlers: Set<MessageHandler> = new Set();
   private pingInterval: ReturnType<typeof setInterval> | null = null;
+  private statusHandlers: Set<StatusHandler> = new Set();
 
   constructor(url?: string) {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -30,11 +33,13 @@ export class WebSocketClient {
         console.log('WebSocket connected');
         this.reconnectAttempts = 0;
         this.startPing();
+        this.notifyStatus(true);
       };
 
       this.ws.onclose = (event) => {
         console.log('WebSocket closed:', event.code, event.reason);
         this.stopPing();
+        this.notifyStatus(false);
         this.scheduleReconnect();
       };
 
@@ -62,6 +67,7 @@ export class WebSocketClient {
       this.ws.close();
       this.ws = null;
     }
+    this.notifyStatus(false);
   }
 
   send(message: Record<string, unknown>): void {
@@ -95,6 +101,16 @@ export class WebSocketClient {
 
   get isConnected(): boolean {
     return this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  addStatusHandler(handler: StatusHandler): () => void {
+    this.statusHandlers.add(handler);
+    handler(this.isConnected);
+    return () => this.statusHandlers.delete(handler);
+  }
+
+  private notifyStatus(connected: boolean): void {
+    this.statusHandlers.forEach((handler) => handler(connected));
   }
 
   private startPing(): void {

@@ -328,6 +328,37 @@ class BackupService:
             conn.commit()
             return cursor.rowcount
 
+    async def store_run_async(self, run: BackupRunIn) -> BackupRunOut:
+        return await asyncio.to_thread(self.store_run, run)
+
+    async def get_runs_async(
+        self,
+        site: Optional[str] = None,
+        job_type: Optional[JobType] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[BackupRunOut], int]:
+        return await asyncio.to_thread(self.get_runs, site, job_type, limit, offset)
+
+    async def get_last_run_async(
+        self, site: str, job_type: JobType, status: Optional[BackupStatus] = None
+    ) -> Optional[BackupRunOut]:
+        return await asyncio.to_thread(self.get_last_run, site, job_type, status)
+
+    async def get_all_sites_async(self) -> list[str]:
+        return await asyncio.to_thread(self.get_all_sites)
+
+    async def compute_site_status_async(
+        self, site: str, thresholds: BackupThresholds
+    ) -> SiteBackupStatus:
+        return await asyncio.to_thread(self.compute_site_status, site, thresholds)
+
+    async def get_restore_points_async(self, site: str, limit: int = 20) -> list[RestorePointOut]:
+        return await asyncio.to_thread(self.get_restore_points, site, limit)
+
+    async def cleanup_old_runs_async(self, retention_days: int = 90) -> int:
+        return await asyncio.to_thread(self.cleanup_old_runs, retention_days)
+
 
 class BackupExecutor:
     """Executes backup and restore operations via SSH."""
@@ -490,7 +521,7 @@ class BackupExecutor:
                 await asyncio.to_thread(self.ssh.execute, f"rm -f {db_dump_path}")
 
             # Record failure
-            self._record_run(site, JobType.SITE, BackupStatus.FAIL, start_time, error=error_msg)
+            await self._record_run(site, JobType.SITE, BackupStatus.FAIL, start_time, error=error_msg)
 
             return BackupActionResponse(
                 status="error",
@@ -520,7 +551,7 @@ class BackupExecutor:
         outputs.append(f"[{site}] Duration: {duration:.1f}s")
 
         # Record success
-        self._record_run(site, JobType.SITE, BackupStatus.OK, start_time, snapshot_id=snapshot_id)
+        await self._record_run(site, JobType.SITE, BackupStatus.OK, start_time, snapshot_id=snapshot_id)
 
         return BackupActionResponse(
             status="success",
@@ -595,7 +626,7 @@ class BackupExecutor:
             error_msg = result.stderr or result.stdout or "Unknown error"
             outputs.append(f"[SYSTEM] FAILED: {error_msg}")
 
-            self._record_run("system", JobType.SYSTEM, BackupStatus.FAIL, start_time, error=error_msg)
+            await self._record_run("system", JobType.SYSTEM, BackupStatus.FAIL, start_time, error=error_msg)
 
             return BackupActionResponse(
                 status="error",
@@ -619,7 +650,7 @@ class BackupExecutor:
         duration = time.time() - start_time
         outputs.append(f"[SYSTEM] Duration: {duration:.1f}s")
 
-        self._record_run("system", JobType.SYSTEM, BackupStatus.OK, start_time, snapshot_id=snapshot_id)
+        await self._record_run("system", JobType.SYSTEM, BackupStatus.OK, start_time, snapshot_id=snapshot_id)
 
         return BackupActionResponse(
             status="success",
@@ -776,7 +807,7 @@ class BackupExecutor:
 
         return None
 
-    def _record_run(
+    async def _record_run(
         self,
         site: str,
         job_type: JobType,
@@ -799,4 +830,4 @@ class BackupExecutor:
             repo=self.RESTIC_REPO,
             error=error,
         )
-        self.backup_service.store_run(run)
+        await self.backup_service.store_run_async(run)

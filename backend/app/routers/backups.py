@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -48,10 +49,10 @@ async def ingest_backup_run(run: BackupRunIn):
     audit = get_audit_service()
 
     try:
-        stored_run = service.store_run(run)
+        stored_run = await service.store_run_async(run)
 
         # Log to audit
-        audit.log_action(
+        await audit.log_action_async(
             action_type=ActionType.BACKUP_RUN,
             target_type=TargetType.SITE,
             target_name=run.site,
@@ -88,7 +89,7 @@ async def get_backup_runs(
     if limit > 200:
         limit = 200
 
-    runs, total = service.get_runs(site=site, job_type=job_type, limit=limit, offset=offset)
+    runs, total = await service.get_runs_async(site=site, job_type=job_type, limit=limit, offset=offset)
 
     return BackupRunsResponse(runs=runs, total=total, limit=limit, offset=offset)
 
@@ -107,12 +108,12 @@ async def get_backup_summary():
     hetzner = get_hetzner_service()
 
     # Get sites from backup records
-    sites_with_backups = set(service.get_all_sites())
+    sites_with_backups = set(await service.get_all_sites_async())
 
     # Get all sites from server
     all_server_sites: set[str] = set()
     try:
-        sites_data = hetzner.get_sites()
+        sites_data = await asyncio.to_thread(hetzner.get_sites)
         all_server_sites = {site.name for site in sites_data}
     except Exception as e:
         logger.warning(f"Could not fetch sites from server: {e}")
@@ -120,9 +121,9 @@ async def get_backup_summary():
     # Merge both sets - all sites should appear in backup summary
     all_sites = sorted(sites_with_backups | all_server_sites)
 
-    site_statuses = [
-        service.compute_site_status(site, DEFAULT_THRESHOLDS) for site in all_sites
-    ]
+    site_statuses = await asyncio.gather(
+        *(service.compute_site_status_async(site, DEFAULT_THRESHOLDS) for site in all_sites)
+    )
 
     return BackupSummaryResponse(sites=site_statuses, thresholds=DEFAULT_THRESHOLDS)
 
@@ -139,7 +140,7 @@ async def get_restore_points(site: str, limit: int = 20):
     if limit > 100:
         limit = 100
 
-    restore_points = service.get_restore_points(site, limit)
+    restore_points = await service.get_restore_points_async(site, limit)
 
     return RestorePointsResponse(site=site, restore_points=restore_points)
 
@@ -173,7 +174,7 @@ async def backup_site(site: str, request: Optional[BackupRequest] = None):
     try:
         result = await executor.backup_site(site)
 
-        audit.log_action(
+        await audit.log_action_async(
             action_type=ActionType.BACKUP_RUN,
             target_type=TargetType.SITE,
             target_name=site,
@@ -187,7 +188,7 @@ async def backup_site(site: str, request: Optional[BackupRequest] = None):
 
     except Exception as e:
         logger.error(f"Backup failed for site {site}: {e}")
-        audit.log_action(
+        await audit.log_action_async(
             action_type=ActionType.BACKUP_RUN,
             target_type=TargetType.SITE,
             target_name=site,
@@ -218,7 +219,7 @@ async def restore_site(site: str, request: RestoreRequest):
     try:
         result = await executor.restore_site(site, request.snapshot_id)
 
-        audit.log_action(
+        await audit.log_action_async(
             action_type=ActionType.SITE_RESTORE,
             target_type=TargetType.SITE,
             target_name=site,
@@ -232,7 +233,7 @@ async def restore_site(site: str, request: RestoreRequest):
 
     except Exception as e:
         logger.error(f"Restore failed for site {site}: {e}")
-        audit.log_action(
+        await audit.log_action_async(
             action_type=ActionType.SITE_RESTORE,
             target_type=TargetType.SITE,
             target_name=site,
@@ -257,7 +258,7 @@ async def backup_all_sites():
     try:
         result = await executor.backup_all_sites()
 
-        audit.log_action(
+        await audit.log_action_async(
             action_type=ActionType.BACKUP_RUN,
             target_type=TargetType.SITE,
             target_name="all-sites",
@@ -289,7 +290,7 @@ async def backup_system():
     try:
         result = await executor.backup_system()
 
-        audit.log_action(
+        await audit.log_action_async(
             action_type=ActionType.BACKUP_RUN,
             target_type=TargetType.SITE,
             target_name="system",
@@ -328,7 +329,7 @@ async def restore_system(request: RestoreRequest):
     try:
         result = await executor.restore_system(request.snapshot_id)
 
-        audit.log_action(
+        await audit.log_action_async(
             action_type=ActionType.SITE_RESTORE,
             target_type=TargetType.SITE,
             target_name="system",
@@ -385,7 +386,7 @@ async def get_system_backup_status():
     service = get_backup_service()
 
     # Get last system backup
-    last_system = service.get_last_run("system", JobType.SYSTEM)
+    last_system = await service.get_last_run_async("system", JobType.SYSTEM)
 
     # Compute RPO
     from datetime import datetime, timezone

@@ -58,7 +58,7 @@ async def container_action(
         output = await asyncio.to_thread(service.run_container_action, validated_container, action)
         duration_ms = (time.time() - start_time) * 1000
 
-        audit.log_action(
+        await audit.log_action_async(
             action_type=action_type_map.get(action, action),
             target_type=TargetType.CONTAINER,
             target_name=validated_container,
@@ -69,7 +69,7 @@ async def container_action(
         )
     except ValueError as exc:
         duration_ms = (time.time() - start_time) * 1000
-        audit.log_action(
+        await audit.log_action_async(
             action_type=action_type_map.get(action, action),
             target_type=TargetType.CONTAINER,
             target_name=validated_container,
@@ -81,7 +81,7 @@ async def container_action(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         duration_ms = (time.time() - start_time) * 1000
-        audit.log_action(
+        await audit.log_action_async(
             action_type=action_type_map.get(action, action),
             target_type=TargetType.CONTAINER,
             target_name=validated_container,
@@ -124,7 +124,7 @@ async def site_action(
         output = await asyncio.to_thread(service.run_site_action, validated_site, action)
         duration_ms = (time.time() - start_time) * 1000
 
-        audit.log_action(
+        await audit.log_action_async(
             action_type=action_type_map[action],
             target_type=TargetType.SITE,
             target_name=validated_site,
@@ -135,7 +135,7 @@ async def site_action(
         )
     except ValueError as exc:
         duration_ms = (time.time() - start_time) * 1000
-        audit.log_action(
+        await audit.log_action_async(
             action_type=action_type_map.get(action, action),
             target_type=TargetType.SITE,
             target_name=validated_site,
@@ -147,7 +147,7 @@ async def site_action(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         duration_ms = (time.time() - start_time) * 1000
-        audit.log_action(
+        await audit.log_action_async(
             action_type=action_type_map.get(action, action),
             target_type=TargetType.SITE,
             target_name=validated_site,
@@ -171,7 +171,7 @@ async def reload_caddy(user_email: str | None = Depends(get_current_user_email))
         duration_ms = (time.time() - start_time) * 1000
 
         status = ActionStatus.SUCCESS if "Failed" not in output else ActionStatus.FAILURE
-        audit.log_action(
+        await audit.log_action_async(
             action_type=ActionType.CADDY_RELOAD,
             target_type=TargetType.CADDY,
             target_name="caddy",
@@ -182,7 +182,7 @@ async def reload_caddy(user_email: str | None = Depends(get_current_user_email))
         )
     except Exception as exc:  # noqa: BLE001
         duration_ms = (time.time() - start_time) * 1000
-        audit.log_action(
+        await audit.log_action_async(
             action_type=ActionType.CADDY_RELOAD,
             target_type=TargetType.CADDY,
             target_name="caddy",
@@ -237,7 +237,7 @@ async def set_site_env(
         service.cache.invalidate()
 
         duration_ms = (time.time() - start_time) * 1000
-        audit.log_action(
+        await audit.log_action_async(
             action_type=ActionType.SITE_CONFIG,
             target_type=TargetType.SITE,
             target_name=validated_site,
@@ -250,7 +250,7 @@ async def set_site_env(
         return {"message": f"Set DOMAIN={validated_domain} for {validated_site}", "site": validated_site, "domain": validated_domain}
     except Exception as exc:
         duration_ms = (time.time() - start_time) * 1000
-        audit.log_action(
+        await audit.log_action_async(
             action_type=ActionType.SITE_CONFIG,
             target_type=TargetType.SITE,
             target_name=validated_site,

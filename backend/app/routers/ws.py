@@ -131,7 +131,7 @@ async def handle_action(websocket: WebSocket, data: dict) -> None:
         duration_ms = (time.time() - start_time) * 1000
 
         # Log successful action
-        audit.log_action(
+        await audit.log_action_async(
             action_type=action_type_map[action],
             target_type=TargetType.CONTAINER,
             target_name=container,
@@ -160,7 +160,7 @@ async def handle_action(websocket: WebSocket, data: dict) -> None:
         duration_ms = (time.time() - start_time) * 1000
 
         # Log failed action
-        audit.log_action(
+        await audit.log_action_async(
             action_type=action_type_map[action],
             target_type=TargetType.CONTAINER,
             target_name=container,

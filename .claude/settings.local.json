@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl:*)",
+      "Bash(python3:*)",
+      "Bash(ssh:*)",
+      "Bash(__NEW_LINE__ echo \"\")",
+      "Bash(source backend/.env)",
+      "Bash(echo:*)",
+      "Bash(rsync:*)",
+      "Bash(/mnt/c/Users/zucku/desktop/projects/infra/siteflow-dashboard/frontend/src/index.css )",
+      "Bash(root@178.156.220.27:/opt/siteflow-dashboard/frontend/src/index.css)",
+      "Bash(/mnt/c/Users/zucku/desktop/projects/infra/siteflow-dashboard/ )",
+      "Bash(root@178.156.220.27:/opt/siteflow-dashboard/)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nSync local changes: mobile layout fixes, provision updates, cloudflare http prefix\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push:*)"
+    ]
+  }
+}

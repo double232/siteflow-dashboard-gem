@@ -23,11 +23,17 @@ class SiteTemplate(BaseModel):
     required_services: list[str] = Field(default_factory=list)
 
 
+class DeploySource(BaseModel):
+    type: str  # 'git', 'folder', 'zip'
+    url: str | None = None  # for git
+    branch: str = "main"
+
 class ProvisionRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=63, pattern=r"^[a-z0-9][a-z0-9-]*[a-z0-9]$")
     template: TemplateType
     domain: str | None = None
     environment: dict[str, str] = Field(default_factory=dict)
+    deploy_source: DeploySource | None = None
 
 
 class DeprovisionRequest(BaseModel):

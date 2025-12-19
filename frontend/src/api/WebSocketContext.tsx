@@ -32,7 +32,7 @@ export const WebSocketProvider = ({ children }: WebSocketProviderProps) => {
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null);
   const clientRef = useRef<WebSocketClient | null>(null);
-  const wasConnectedRef = useRef(false);
+  const previousConnectionRef = useRef(false);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -50,24 +50,20 @@ export const WebSocketProvider = ({ children }: WebSocketProviderProps) => {
       }
     });
 
-    // Check connection status periodically and trigger refetch on reconnect
-    const statusInterval = setInterval(() => {
-      const currentlyConnected = client.isConnected;
-      setIsConnected(currentlyConnected);
-
-      // When reconnecting after a disconnect, refetch data to ensure sync
-      if (currentlyConnected && !wasConnectedRef.current) {
+    const removeStatus = client.addStatusHandler((connected) => {
+      setIsConnected(connected);
+      if (connected && !previousConnectionRef.current) {
         queryClient.invalidateQueries({ queryKey: ['sites'] });
         queryClient.invalidateQueries({ queryKey: ['graph'] });
       }
-      wasConnectedRef.current = currentlyConnected;
-    }, 1000);
+      previousConnectionRef.current = connected;
+    });
 
     client.connect();
 
     return () => {
       removeHandler();
-      clearInterval(statusInterval);
+      removeStatus();
       client.disconnect();
     };
   }, [queryClient]);

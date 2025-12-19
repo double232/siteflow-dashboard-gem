@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from contextlib import contextmanager
@@ -248,3 +249,18 @@ class AuditService:
                 duration_ms=duration_ms,
             )
             raise
+
+    async def log_action_async(self, *args, **kwargs) -> AuditLogEntry:
+        """Async wrapper to log actions without blocking the event loop."""
+        return await asyncio.to_thread(self.log_action, *args, **kwargs)
+
+    async def get_logs_async(
+        self,
+        filters: AuditLogFilter | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> AuditLogResponse:
+        return await asyncio.to_thread(self.get_logs, filters, page, page_size)
+
+    async def cleanup_old_logs_async(self) -> int:
+        return await asyncio.to_thread(self.cleanup_old_logs)

@@ -542,13 +542,23 @@ class ProvisionService:
             if not dns_success:
                 logger.warning(f"Failed to create Cloudflare DNS record for {domain}")
 
+            # Handle immediate deployment if requested
+            deploy_output = ""
+            if request.deploy_source:
+                logger.info(f"Triggering immediate deployment for {validated_name} from {request.deploy_source.type}")
+                try:
+                    deploy_output = self._handle_deploy(validated_name, request.deploy_source)
+                except Exception as e:
+                    logger.error(f"Immediate deployment failed: {e}")
+                    deploy_output = f"\nStats: Provisioned OK, but Deployment Failed: {e}"
+
             duration_ms = (time.time() - start_time) * 1000
             self.audit.log_action(
                 action_type=ActionType.SITE_PROVISION,
                 target_type=TargetType.SITE,
                 target_name=validated_name,
                 status=ActionStatus.SUCCESS,
-                output=f"Site provisioned with template {request.template.value}",
+                output=f"Site provisioned with template {request.template.value}{deploy_output}",
                 metadata={"template": request.template.value, "domain": domain},
                 duration_ms=duration_ms,
             )
@@ -557,7 +567,7 @@ class ProvisionService:
                 name=validated_name,
                 template=request.template,
                 status="success",
-                message=f"Site '{validated_name}' provisioned successfully at {domain}",
+                message=f"Site '{validated_name}' provisioned successfully at {domain}. {deploy_output}",
                 path=site_path,
                 domain=domain,
             )
@@ -574,6 +584,62 @@ class ProvisionService:
                 duration_ms=duration_ms,
             )
             raise
+
+    def _handle_deploy(self, site_name: str, source: Any) -> str:
+        """Helper to trigger deployment logic from provision service.
+        Note: This re-implements some logic from deploy router to keep services decoupled,
+        or ideally we should move deploy logic to a service. For now, we inline a simple git deploy.
+        """
+        # Only supporting Git for background provision-deploy for now as per reliability recommendation
+        if source.type != 'git' or not source.url:
+             return " Skipped deployment: Only Git source supported for immediate provision-deploy."
+
+        site_path = f"{self.settings.remote_sites_root}/{site_name}"
+        # Simplified version of deploy logic
+        # 1. Determine app path (assume default structure since we just created it)
+        # Static/WordPress -> public/wp-content is mounted, but git usually goes to app or root.
+        # For simplicity in this unified flow, we assume standard 'app' unless template is static.
+        
+        # Actually, let's use the same logic as deploy.py: check docker-compose
+        # But we just wrote it, so we know.
+        # STATIC -> ./public
+        # NODE -> ./app
+        # PYTHON -> ./app
+        
+        deploy_dir = "public" if "public" in COMPOSE_TEMPLATES.get(TemplateType.STATIC, "") else "app" 
+        # Wait, we need to check the ACTUAL template used. But we don't have it in this method args strictly.
+        # Let's inspect the site on disk or just try standard locations.
+        # Better: use the 'app' dir for git clones generally, unless it's pure static HTML.
+        
+        target_path = f"{site_path}/app" # Default for most
+        result = self.ssh.execute(f"grep 'volumes:' {site_path}/docker-compose.yml -A 5 | grep './public'", check=False)
+        if result.exit_code == 0:
+            target_path = f"{site_path}/public"
+
+        quoted_target = quote_shell_arg(target_path)
+        quoted_url = quote_shell_arg(source.url)
+        quoted_branch = quote_shell_arg(source.branch)
+
+        # Clone
+        logger.info(f"Cloning {source.url} to {target_path}")
+        self.ssh.execute(
+            f"rm -rf {quoted_target} && git clone --branch {quoted_branch} --depth 1 {quoted_url} {quoted_target}",
+            check=True
+        )
+
+        # Save config
+        import json
+        config = {"repo_url": source.url, "branch": source.branch}
+        quoted_config = quote_shell_arg(json.dumps(config))
+        self.ssh.execute(f"echo {quoted_config} > {site_path}/.siteflow.json", check=False)
+        
+        # Rebuild
+        self.ssh.execute(
+            f"cd {site_path} && docker compose down && docker compose build --no-cache && docker compose up -d",
+            check=True
+        )
+        
+        return " Deployment successful."
 
     def deprovision_site(self, request: DeprovisionRequest) -> DeprovisionResponse:
         """Deprovision an existing site."""
